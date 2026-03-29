@@ -1,0 +1,26 @@
+<configuration>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} — %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Ingestion layer: INFO in normal operation, DEBUG when diagnosing
+         bootstrap or gap detection issues -->
+    <logger name="com.muralis.ingestion" level="INFO"/>
+
+    <!-- Engine layer: WARN only — DEBUG is very noisy at 100 events/sec -->
+    <logger name="com.muralis.engine" level="WARN"/>
+
+    <!-- UI layer: WARN only -->
+    <logger name="com.muralis.ui" level="WARN"/>
+
+    <!-- Java-WebSocket library: suppress its internal INFO spam -->
+    <logger name="org.java_websocket" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

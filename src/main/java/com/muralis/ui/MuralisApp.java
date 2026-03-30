@@ -15,6 +15,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.layout.BorderPane;
@@ -36,6 +37,7 @@ public class MuralisApp extends Application {
     public static RenderConfig                    renderConfig;
     public static InstrumentSpec                  instrumentSpec;
     public static Runnable                        shutdownCallback;
+    public static Runnable                        deltaResetCallback;
 
     @Override
     public void start(Stage stage) {
@@ -105,6 +107,32 @@ public class MuralisApp extends Application {
             decayLabel.setText("Decay: " + newVal.intValue() + "s");
         });
 
+        // ── Delta tint controls ────────────────────────────────────────
+        Label deltaTintLabel = new Label("50%");
+        deltaTintLabel.setTextFill(ColorScheme.DARK.priceText);
+
+        Slider deltaTintSlider = new Slider(0.1, 1.0, 0.5);
+        deltaTintSlider.setMajorTickUnit(0.2);
+        deltaTintSlider.setSnapToTicks(false);
+        deltaTintSlider.setPrefWidth(120.0);
+        deltaTintSlider.valueProperty().addListener((obs, oldVal, newVal) -> {
+            renderConfig.setDeltaTintIntensity(newVal.doubleValue());
+            deltaTintLabel.setText((int)(newVal.doubleValue() * 100) + "%");
+        });
+
+        CheckBox deltaTintToggle = new CheckBox("Delta");
+        deltaTintToggle.setSelected(true);
+        deltaTintToggle.setTextFill(ColorScheme.DARK.priceText);
+        deltaTintToggle.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            renderConfig.setDeltaTintEnabled(newVal);
+            deltaTintSlider.setDisable(!newVal);
+        });
+
+        Button resetDelta = new Button("Reset \u0394");
+        resetDelta.setOnAction(e -> {
+            if (deltaResetCallback != null) deltaResetCallback.run();
+        });
+
         Button centreButton = new Button("Centre");
         centreButton.setOnAction(e -> ladderCanvas.resetScroll());
 
@@ -113,7 +141,9 @@ public class MuralisApp extends Application {
         zoomIn.setOnAction(e  -> ladderCanvas.adjustZoom(+2.0));
         zoomOut.setOnAction(e -> ladderCanvas.adjustZoom(-2.0));
 
-        HBox controlBar = new HBox(8, decayLabel, decaySlider, centreButton, zoomIn, zoomOut);
+        HBox controlBar = new HBox(8, decayLabel, decaySlider,
+                deltaTintToggle, deltaTintSlider, deltaTintLabel, resetDelta,
+                centreButton, zoomIn, zoomOut);
         controlBar.setAlignment(Pos.CENTER_LEFT);
         controlBar.setPrefHeight(36.0);
         controlBar.setPadding(new Insets(4, 6, 4, 6));

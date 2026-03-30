@@ -37,12 +37,10 @@ public class Application {
         OrderBookEngine engine = new OrderBookEngine(queue, snapshotRef, instrumentSpec, renderConfig);
 
         // ── PROVIDER SEAM ─────────────────────────────────────────────────
-        // Phase 1: BinanceAdapter (Futures) is the only provider. Hardcoded.
-        // Data source: Binance USDⓈ-M Futures — Spot is geo-blocked in the US.
-        //   WS:   wss://fstream.binance.com/stream?streams=...
-        //   REST: https://fapi.binance.com/fapi/v1/depth
-        // See ADR-001 in ARCHITECTURE.md Section 8 for the full migration rationale.
-        // Phase 2: Replace with ServiceLoader discovery per SPEC-provider-spi.md Section 6.
+        // Phase 1: BinanceAdapter targeting USDⓈ-M Futures is the only
+        //          provider. Hardcoded here. (ADR-001: Spot geo-blocked in US)
+        // Phase 2: Replace these two lines with ServiceLoader discovery
+        //          (see SPEC-provider-spi.md Section 6 for upgrade path).
         // ──────────────────────────────────────────────────────────────────
         MarketDataProvider provider = new BinanceAdapter(queue, instrumentSpec);
 

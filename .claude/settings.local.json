@@ -5,7 +5,11 @@
       "Bash(./gradlew.bat compileJava)",
       "Bash(.\\\\gradlew.bat build:*)",
       "Bash(./gradlew.bat build:*)",
-      "Bash(./gradlew.bat test:*)"
+      "Bash(./gradlew.bat test:*)",
+      "Bash(grep -h 'tests=' build/test-results/test/TEST-*.xml)",
+      "Bash(bc)",
+      "Bash(grep:*)",
+      "Bash(.gradlew.bat compileJava)"
     ]
   }
 }

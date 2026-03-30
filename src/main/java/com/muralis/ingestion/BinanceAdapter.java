@@ -35,6 +35,7 @@ public class BinanceAdapter implements MarketDataProvider {
     private final AtomicReference<ConnectionState> state;
     private volatile BinanceWebSocketClient wsClient;
     private volatile long lastPublishedFinalUpdateId = -1L;
+    private volatile boolean connected = false;
     /** True after the @depth20 snapshot is published but before the first live diff is accepted. */
     private boolean awaitingFirstDiff = false;
     private final Object reconnectLock = new Object();
@@ -64,6 +65,7 @@ public class BinanceAdapter implements MarketDataProvider {
         if (!state.compareAndSet(ConnectionState.DISCONNECTED, ConnectionState.CONNECTING)) {
             throw new IllegalStateException("connect() already called");
         }
+        connected = true;
         if (!spec.symbol().equals(config.symbol())) {
             throw new IllegalArgumentException(
                 "config.symbol() '" + config.symbol() + "' does not match spec.symbol() '" + spec.symbol() + "'");
@@ -120,6 +122,13 @@ public class BinanceAdapter implements MarketDataProvider {
 
     @Override
     public void addListener(MarketDataListener listener) {
+        if (listener == null) {
+            throw new IllegalArgumentException("listener must not be null");
+        }
+        if (connected) {
+            throw new IllegalStateException("listeners must be registered before connect() is called");
+        }
+        listeners.add(listener);
     }
 
     @Override

@@ -160,7 +160,7 @@ public class LadderCanvas extends Region {
         view.centreOn(savedCentre);
         if (userScrolled) view.adjustScroll(savedScroll);  // restore from initial 0
 
-        ladderPainter = new LadderPainter(ladderCanvas, view, colorScheme);
+        ladderPainter = new LadderPainter(ladderCanvas, view, colorScheme, renderConfig);
         bubblePainter = new BubblePainter(bubbleCanvas, view, colorScheme);
     }
 

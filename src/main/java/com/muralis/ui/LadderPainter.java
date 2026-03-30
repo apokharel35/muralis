@@ -1,10 +1,12 @@
 package com.muralis.ui;
 
+import com.muralis.engine.RenderConfig;
 import com.muralis.engine.RenderSnapshot;
 import com.muralis.model.InstrumentSpec;
 import javafx.geometry.VPos;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.TextAlignment;
 
@@ -14,17 +16,22 @@ import java.util.Locale;
 
 class LadderPainter {
 
-    private final Canvas     canvas;
-    private final LadderView view;
+    private static final double MAX_DELTA_ALPHA = 0.35;
+
+    private final Canvas       canvas;
+    private final LadderView   view;
+    private final RenderConfig renderConfig;
     ColorScheme colorScheme;   // package-private — LadderCanvas swaps on theme toggle
 
     // Section 10: NumberFormat instantiated once, reused every frame
     private final NumberFormat priceFormat = NumberFormat.getNumberInstance(Locale.US);
 
-    LadderPainter(Canvas canvas, LadderView view, ColorScheme colorScheme) {
-        this.canvas      = canvas;
-        this.view        = view;
-        this.colorScheme = colorScheme;
+    LadderPainter(Canvas canvas, LadderView view, ColorScheme colorScheme,
+                  RenderConfig renderConfig) {
+        this.canvas       = canvas;
+        this.view         = view;
+        this.colorScheme  = colorScheme;
+        this.renderConfig = renderConfig;
     }
 
     void paint(RenderSnapshot snap) {
@@ -101,6 +108,35 @@ class LadderPainter {
                 gc.setFill(colorScheme.background);
             }
             gc.fillRect(0, y, w, rowH);
+        }
+
+        // ══════════════════════════════════════════════════════════════════
+        // Step 2b: Delta tint overlay (SPEC-phase2-delta-tint Section 5.2)
+        //          Painted after row backgrounds, before grid lines.
+        //          Skips spread and best bid/ask rows (those have opaque fills).
+        // ══════════════════════════════════════════════════════════════════
+        if (renderConfig.deltaTintEnabled() && snap.maxAbsDelta() != 0L) {
+            for (long price = topPrice; price >= bottomPrice; price -= tickSz) {
+                boolean inSpread = bestBid >= 0 && bestAsk >= 0
+                                   && price > bestBid && price < bestAsk;
+                if (inSpread || price == bestBid || price == bestAsk) continue;
+
+                long delta = snap.priceDeltaMap().getOrDefault(price, 0L);
+                if (delta == 0L) continue;
+
+                double normalised = (double) Math.abs(delta)
+                                    / (double) snap.maxAbsDelta();
+                double intensity = normalised * renderConfig.deltaTintIntensity();
+                double alpha = intensity * MAX_DELTA_ALPHA;
+                if (alpha < 0.02) continue;
+
+                Color tint = delta > 0
+                        ? colorScheme.deltaBuyTint.deriveColor(0, 1, 1, alpha)
+                        : colorScheme.deltaSellTint.deriveColor(0, 1, 1, alpha);
+
+                gc.setFill(tint);
+                gc.fillRect(0, view.priceToY(price, centreP), w, rowH);
+            }
         }
 
         // ══════════════════════════════════════════════════════════════════

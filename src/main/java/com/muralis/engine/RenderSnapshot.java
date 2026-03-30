@@ -5,6 +5,7 @@ import com.muralis.model.InstrumentSpec;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Immutable value object written by the engine thread and read by the UI thread.
@@ -18,9 +19,11 @@ public record RenderSnapshot(
         long[]          bidQtys,
         long[]          askPrices,
         long[]          askQtys,
-        List<TradeBlip> recentTrades,
-        ConnectionState connectionState,
-        InstrumentSpec  instrumentSpec
+        List<TradeBlip>  recentTrades,
+        Map<Long, Long>  priceDeltaMap,
+        long             maxAbsDelta,
+        ConnectionState  connectionState,
+        InstrumentSpec   instrumentSpec
 ) {
     /**
      * Compact constructor makes defensive copies of all mutable fields so
@@ -32,5 +35,6 @@ public record RenderSnapshot(
         askPrices    = Arrays.copyOf(askPrices,    askPrices.length);
         askQtys      = Arrays.copyOf(askQtys,      askQtys.length);
         recentTrades = List.copyOf(recentTrades);
+        priceDeltaMap = Map.copyOf(priceDeltaMap);
     }
 }

@@ -9,6 +9,7 @@ import com.muralis.model.OrderBookDelta;
 import com.muralis.model.OrderBookSnapshot;
 import com.muralis.provider.MarketDataListener;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,10 +39,12 @@ public class OrderBookEngine implements MarketDataListener {
 
     // ── Mutable engine-thread state ────────────────────────────────────
 
-    private final OrderBook   orderBook   = new OrderBook();
-    private final TradeBuffer tradeBuffer = new TradeBuffer();
+    private final OrderBook        orderBook        = new OrderBook();
+    private final TradeBuffer      tradeBuffer      = new TradeBuffer();
+    private final DeltaAccumulator deltaAccumulator = new DeltaAccumulator();
 
-    private volatile boolean running        = false;
+    private volatile boolean running              = false;
+    private volatile boolean deltaResetRequested  = false;
     private long             lastSnapshotTs = 0L;
     private ConnectionState  connectionState = ConnectionState.CONNECTING;
 
@@ -71,6 +74,10 @@ public class OrderBookEngine implements MarketDataListener {
         running = false;
     }
 
+    public void requestDeltaReset() {
+        deltaResetRequested = true;
+    }
+
     // ── MarketDataListener — forwarding only (ingestion thread) ────────
 
     @Override public void onSnapshot(OrderBookSnapshot s)    { queue.offer(s); }
@@ -98,6 +105,10 @@ public class OrderBookEngine implements MarketDataListener {
                 case ConnectionEvent   c -> applyConnectionEvent(c);
             }
 
+            if (deltaResetRequested) {
+                deltaAccumulator.clear();
+                deltaResetRequested = false;
+            }
             snapshotRef.set(buildSnapshot());
         }
     }
@@ -151,6 +162,7 @@ public class OrderBookEngine implements MarketDataListener {
                 t.tradeId(), t.price(), t.qty(),
                 t.aggressorSide(), t.exchangeTs(), t.receivedTs());
         tradeBuffer.add(blip);
+        deltaAccumulator.accumulate(t.price(), t.qty(), t.aggressorSide());
     }
 
     private void applyConnectionEvent(ConnectionEvent c) {
@@ -159,6 +171,7 @@ public class OrderBookEngine implements MarketDataListener {
                 connectionState = ConnectionState.CONNECTING;
                 orderBook.clear();
                 tradeBuffer.clear();
+                deltaAccumulator.clear();
                 LOG.log(System.Logger.Level.INFO,
                         "[{0}] Connecting...", instrumentSpec.symbol());
             }
@@ -171,6 +184,7 @@ public class OrderBookEngine implements MarketDataListener {
                 connectionState = ConnectionState.RECONNECTING;
                 orderBook.clear();
                 tradeBuffer.clear();
+                deltaAccumulator.clear();
                 LOG.log(System.Logger.Level.WARNING,
                         "[{0}] Reconnecting. Reason: {1}",
                         instrumentSpec.symbol(), c.reason());
@@ -193,6 +207,14 @@ public class OrderBookEngine implements MarketDataListener {
         long[][] askArrays = toArrays(askEntries);
         List<TradeBlip> activeBlips = tradeBuffer.getActive(renderConfig.bubbleDecayMs());
 
+        Map<Long, Long> priceDeltaMap = new HashMap<>();
+        long maxAbsDelta = 0L;
+        for (Map.Entry<Long, long[]> entry : deltaAccumulator.getSnapshot().entrySet()) {
+            long delta = entry.getValue()[0] - entry.getValue()[1];
+            priceDeltaMap.put(entry.getKey(), delta);
+            maxAbsDelta = Math.max(maxAbsDelta, Math.abs(delta));
+        }
+
         // Crossed-book sanity check — log WARN, never throw (spec §3.3)
         long bestBid = orderBook.bestBid();
         long bestAsk = orderBook.bestAsk();
@@ -208,6 +230,8 @@ public class OrderBookEngine implements MarketDataListener {
                 bidArrays[0], bidArrays[1],
                 askArrays[0], askArrays[1],
                 activeBlips,
+                priceDeltaMap,
+                maxAbsDelta,
                 connectionState,
                 instrumentSpec
         );

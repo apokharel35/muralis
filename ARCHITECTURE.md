@@ -121,13 +121,13 @@ com.muralis/
 │   ├── NormalizedTrade.java      
 │   ├── InstrumentSpec.java       
 │   ├── ConnectionEvent.java      
-│   ├── ConnectionState.java      (enum — here so MarketEvent sealed permits works)
 │   ├── AggressorSide.java        (enum)
 │   └── MarketEvent.java          Sealed interface — union of all queue event types
 │
 ├── provider/                     Provider SPI (SPEC-provider-spi.md)
 │   ├── MarketDataProvider.java   Interface
 │   ├── MarketDataListener.java   Interface
+│   ├── ConnectionState.java      (enum)
 │   └── ProviderType.java         (enum)
 │
 ├── ingestion/                    Binance-specific adapter (SPEC-ingestion.md)
@@ -159,12 +159,10 @@ the architecture. Claude Code must check imports before finalising any class.
 
 ```
 model/       →  (nothing) — model has zero dependencies on other Muralis packages
-                 ConnectionState and ConnectionEvent live here so MarketEvent
-                 sealed permits clause has no cross-package dependency.
 provider/    →  model/
 ingestion/   →  model/, provider/
-engine/      →  model/, provider/ (ProviderType only, via InstrumentSpec)
-ui/          →  model/, engine/ (RenderSnapshot and TradeBlip only)
+engine/      →  model/, provider/
+ui/          →  model/, engine/ (RenderSnapshot only)
 
 Application  →  all packages (it is the composition root — only class allowed to)
 ```
@@ -182,11 +180,8 @@ Application  →  all packages (it is the composition root — only class allowe
 | `ui/` | `provider/` — UI does not know about connection management |
 
 **The only permitted cross-cutting dependency:**
-`ui/` may import `engine.RenderSnapshot` and `engine.TradeBlip` — these
-are the data handoff types between engine and UI. It imports nothing else
-from `engine/`. `ui/` also imports `model.ConnectionState` (via
-`RenderSnapshot`) — this is safe because `ConnectionState` is in `model/`,
-which has no dependencies.
+`ui/` may import `engine.RenderSnapshot` — this is the single data
+handoff point between engine and UI. It imports nothing else from `engine/`.
 
 ---
 
@@ -247,13 +242,10 @@ public record RenderSnapshot(
 **`TradeBlip`** — a lightweight trade record for the bubble renderer:
 ```java
 public record TradeBlip(
-    long          tradeId,       // For duplicate detection in TradeBuffer
     long          price,         // Fixed-point
     long          qty,           // Fixed-point
     AggressorSide aggressorSide,
-    long          exchangeTs,    // Used by UI to compute bubble age and alpha
-    long          receivedTs     // Local receipt time — used for decay calculation
-                                 // to avoid clock skew with exchangeTs
+    long          exchangeTs     // Used by UI to compute bubble age and alpha
 ) {}
 ```
 
@@ -302,7 +294,38 @@ ADRs are appended here when a locked decision in this file is revisited.
 Each ADR must state: the decision being changed, the reason, the impact
 on existing spec files, and the date.
 
-*No ADRs yet. File is at v1.0.*
+*No ADRs before v1.2.*
+
+### ADR-001: Binance Spot → Binance USDⓈ-M Futures
+**Date:** 2026-03-29 | **Status:** Accepted
+
+**Decision changed:** Data source switched from Binance Spot
+(`stream.binance.com`) to Binance USDⓈ-M Futures
+(`fstream.binance.com`).
+
+**Reason:** Binance Spot returns HTTP 451 "Unavailable For Legal
+Reasons" for all US IP addresses. VPN workaround is not acceptable.
+Binance Futures is not geo-blocked in the US.
+
+**Key differences from Spot:**
+- Trade stream: `@aggTrade` (not `@trade`) — aggregate fills at
+  same price/side within 100ms. Trade ID from `a` field, not `t`.
+- Depth stream: adds `pu` (previous update ID) field — enables
+  simpler gap detection. Adapter uses `pu` internally; model types
+  unchanged.
+- REST snapshot: `fapi.binance.com/fapi/v1/depth`, limit=1000
+  (not 5000). Response body includes `E` (event time).
+- InstrumentSpec BTCUSDT: `priceScale=1` (not 2), `qtyScale=3`
+  (not 8), `tickSize=1L` (=0.1), `minQty=1L` (=0.001).
+- Tick sizes are subject to change by Binance. Phase 2 should
+  fetch from `/fapi/v1/exchangeInfo` at startup.
+
+**Impact on spec files:** PROJECT.md, DATA-CONTRACTS.md,
+SPEC-ingestion.md, SPEC-provider-spi.md updated. SPEC-engine.md,
+SPEC-rendering.md, BUILD.md unchanged (architecture is
+provider-agnostic).
+
+**Full ADR:** See `ADR-001-binance-futures.md` in project root.
 
 ---
 
@@ -319,8 +342,9 @@ and must not influence Phase 1 implementation decisions.
 | CME/Rithmic adapter | Phase 2 — new `ingestion/` implementation |
 | Multi-window or split-view UI | Phase 2 — JavaFX scene graph refactor |
 | GraalVM native image packaging | Post-Phase 2 — after API stabilises |
+| Fetch InstrumentSpec from exchange at startup | Phase 2 — hardcoded in Phase 1 |
 
 ---
 
-*Last updated: ARCHITECTURE.md v1.1 — ConnectionState/ConnectionEvent moved to model/. TradeBlip definition aligned with SPEC-engine.md (tradeId + receivedTs added). Dependency rules clarified for ui/ → model/.*
+*Last updated: ARCHITECTURE.md v1.2 — ADR-001 appended (Binance Spot → Futures).*
 *Next file: SPEC-ingestion.md*

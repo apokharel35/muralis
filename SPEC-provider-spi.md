@@ -16,14 +16,13 @@
 
 This spec covers exactly the following types:
 
-| Type | Kind | Package | Responsibility |
-|---|---|---|---|
-| `MarketDataProvider` | Interface | `provider/` | Contract every adapter must implement |
-| `MarketDataListener` | Interface | `provider/` | Callback contract for event consumers |
-| `ProviderType` | Enum | `provider/` | Identifies the exchange/feed source |
-| `ProviderConfig` | Record | `provider/` | Connection parameters passed to `connect()` |
-| `ConnectionState` | Enum | `model/` | Provider connection lifecycle states (lives in `model/` so `MarketEvent` sealed permits works — see `DATA-CONTRACTS.md` Section 2.1) |
-| `ConnectionEvent` | Record | `model/` | Connection state change event (lives in `model/` as a `MarketEvent` subtype — see `DATA-CONTRACTS.md` Section 3.5) |
+| Type | Kind | Responsibility |
+|---|---|---|
+| `MarketDataProvider` | Interface | Contract every adapter must implement |
+| `MarketDataListener` | Interface | Callback contract for event consumers |
+| `ConnectionState` | Enum | Provider connection lifecycle states |
+| `ProviderType` | Enum | Identifies the exchange/feed source |
+| `ProviderConfig` | Record | Connection parameters passed to `connect()` |
 
 These types are already referenced in `DATA-CONTRACTS.md`. This spec
 defines their complete method signatures and behavioural contracts.
@@ -221,12 +220,6 @@ public record ProviderConfig(
 a local mock server without modifying adapter code. Both are `null` in
 production — the adapter uses its hardcoded default URLs.
 
-**Symbol consistency rule:** The `ProviderConfig.symbol` and the
-`InstrumentSpec.symbol` passed to the adapter must match. The adapter
-must validate this in `connect()` and throw `IllegalArgumentException`
-if they differ. This prevents a wiring bug where the adapter connects
-to one symbol but the engine formats prices for another.
-
 ---
 
 ## 5. Provider discovery — Phase 1 (hardcoded)
@@ -238,7 +231,8 @@ In Phase 1, the active provider is instantiated directly in
 // In com.muralis.Application — the composition root:
 
 // ── PROVIDER SEAM ─────────────────────────────────────────────────
-// Phase 1: BinanceAdapter is the only provider. Hardcoded here.
+// Phase 1: BinanceAdapter targeting USDⓈ-M Futures is the only
+//          provider. Hardcoded here. (ADR-001: Spot geo-blocked in US)
 // Phase 2: Replace these two lines with ServiceLoader discovery
 //          (see SPEC-provider-spi.md Section 6 for upgrade path).
 // ──────────────────────────────────────────────────────────────────
@@ -278,7 +272,7 @@ com.muralis.rithmic.RithmicAdapter
 
 ```java
 // Phase 2 replacement for the hardcoded seam:
-String targetProvider = System.getProperty("muralis.provider", "BINANCE_SPOT");
+String targetProvider = System.getProperty("muralis.provider", "BINANCE_FUTURES");
 
 MarketDataProvider provider = StreamSupport
     .stream(ServiceLoader.load(MarketDataProvider.class).spliterator(), false)
@@ -294,8 +288,8 @@ provider.connect(ProviderConfig.defaultFor(symbol));
 
 Provider selection via JVM system property:
 ```
-java -Dmuralis.provider=BINANCE_SPOT -jar muralis.jar
-java -Dmuralis.provider=CME_RITHMIC  -jar muralis.jar
+java -Dmuralis.provider=BINANCE_FUTURES -jar muralis.jar
+java -Dmuralis.provider=CME_RITHMIC    -jar muralis.jar
 ```
 
 ### 6.3 What each adapter must implement for ServiceLoader
@@ -374,15 +368,11 @@ When generating any class in `com.muralis.provider`, verify:
 
 - [ ] `MarketDataProvider` has no imports from `engine/`, `ingestion/`,
       or `ui/` — it depends on `model/` only
-- [ ] `ConnectionState` and `ConnectionEvent` are imported from
-      `com.muralis.model`, not from `com.muralis.provider`
 - [ ] `MarketDataListener` callbacks are never called after
       `ConnectionEvent(DISCONNECTED)` is published
 - [ ] `disconnect()` is idempotent — safe to call multiple times
 - [ ] `connect()` throws `IllegalStateException` if called twice on the
       same instance
-- [ ] `connect()` validates that `config.symbol()` matches
-      `instrumentSpec.symbol()` — throws `IllegalArgumentException` if not
 - [ ] `ProviderConfig.wsUrlOverride` and `restUrlOverride` are `null`
       in all production call sites
 - [ ] The `PROVIDER SEAM` comment block is present in `Application.java`
@@ -405,5 +395,5 @@ Contents: com.muralis.ingestion.BinanceAdapter
 
 ---
 
-*Last updated: SPEC-provider-spi.md v1.1 — ConnectionState/ConnectionEvent moved to model/ package. Symbol validation added to connect(). Invariant checklist updated.*
+*Last updated: SPEC-provider-spi.md v1.2 — Provider seam updated for Binance Futures (ADR-001). Default provider changed to BINANCE_FUTURES.*
 *Next file: BUILD.md*

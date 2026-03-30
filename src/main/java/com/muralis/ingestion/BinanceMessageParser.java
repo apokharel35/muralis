@@ -82,22 +82,52 @@ class BinanceMessageParser {
     }
 
     /**
-     * Parses a Binance trade stream payload (the "data" object, not the envelope).
-     * Field mapping: T→exchangeTs (trade time, not E event time), s→symbol,
-     * t→tradeId, p→price, q→qty, m→aggressorSide.
+     * Parses a Binance Futures @aggTrade stream payload (the "data" object).
+     * Field mapping: T→exchangeTs (trade time, NOT E event time), s→symbol,
+     * a→tradeId (aggregate trade ID — Futures has no "t" field), p→price,
+     * q→qty (aggregate quantity). Fields nq, f, l are ignored.
      * AggressorSide: m=false → BUY (buyer lifted offer), m=true → SELL (seller hit bid).
      */
-    static NormalizedTrade parseTrade(JsonObject json, InstrumentSpec spec) {
-        long receivedTs   = System.currentTimeMillis();
-        String symbol     = json.get("s").getAsString();
-        long tradeId      = json.get("t").getAsLong();
-        long price        = parsePrice(json.get("p").getAsString(), spec.priceScale());
-        long qty          = parseQty(json.get("q").getAsString(), spec.qtyScale());
+    static NormalizedTrade parseAggTrade(JsonObject json, InstrumentSpec spec) {
+        long receivedTs      = System.currentTimeMillis();
+        String symbol        = json.get("s").getAsString();
+        long tradeId         = json.get("a").getAsLong();   // "a" = aggregate trade ID
+        long price           = parsePrice(json.get("p").getAsString(), spec.priceScale());
+        long qty             = parseQty(json.get("q").getAsString(), spec.qtyScale());
         boolean isBuyerMaker = json.get("m").getAsBoolean();
         AggressorSide aggressorSide = isBuyerMaker ? AggressorSide.SELL : AggressorSide.BUY;
-        long exchangeTs   = json.get("T").getAsLong(); // T = trade time; E = event time (later)
+        long exchangeTs      = json.get("T").getAsLong();   // T = trade time; E = event time (later)
 
         return new NormalizedTrade(symbol, tradeId, price, qty, aggressorSide, exchangeTs, receivedTs);
+    }
+
+    /**
+     * Parses a Binance Futures @depth20 WebSocket partial-book snapshot payload.
+     * Field mapping: E→exchangeTs, s→symbol, u→lastUpdateId, b→bids, a→asks.
+     * Used during bootstrap to replace the geo-blocked REST snapshot endpoint.
+     */
+    static OrderBookSnapshot parseDepth20Snapshot(JsonObject json, InstrumentSpec spec) {
+        long receivedTs   = System.currentTimeMillis();
+        String symbol     = json.get("s").getAsString();
+        long lastUpdateId = json.get("u").getAsLong();
+        long exchangeTs   = json.get("E").getAsLong();
+
+        long[][] bids = parseLevels(json.getAsJsonArray("b"), spec.priceScale(), spec.qtyScale());
+        long[][] asks = parseLevels(json.getAsJsonArray("a"), spec.priceScale(), spec.qtyScale());
+
+        return new OrderBookSnapshot(
+            symbol, lastUpdateId, exchangeTs, receivedTs,
+            bids[0], bids[1], asks[0], asks[1]
+        );
+    }
+
+    /**
+     * Extracts the {@code pu} (previous final update ID) field from a Futures depth
+     * delta payload. Used by {@link BinanceAdapter} for gap detection only — this
+     * value is NOT stored in {@link com.muralis.model.OrderBookDelta}.
+     */
+    static long parsePu(JsonObject json) {
+        return json.get("pu").getAsLong();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

@@ -17,14 +17,17 @@ import java.util.concurrent.atomic.AtomicReference;
 public class Application {
 
     public static void main(String[] args) {
+        // Binance USDⓈ-M Futures — see ADR-001 in ARCHITECTURE.md Section 8
+        // priceScale=1  → prices have 1 decimal place  (tick = 0.1 USDT)
+        // qtyScale=3    → quantities have 3 decimal places (min = 0.001 BTC)
         InstrumentSpec instrumentSpec = new InstrumentSpec(
                 "BTCUSDT",
                 2,
                 1L,
-                8,
-                100L,
+                3,
+                1L,
                 "USDT",
-                ProviderType.BINANCE_SPOT
+                ProviderType.BINANCE_FUTURES
         );
 
         LinkedTransferQueue<MarketEvent>   queue       = new LinkedTransferQueue<>();
@@ -34,9 +37,12 @@ public class Application {
         OrderBookEngine engine = new OrderBookEngine(queue, snapshotRef, instrumentSpec, renderConfig);
 
         // ── PROVIDER SEAM ─────────────────────────────────────────────────
-        // Phase 1: BinanceAdapter is the only provider. Hardcoded here.
-        // Phase 2: Replace these two lines with ServiceLoader discovery
-        //          (see SPEC-provider-spi.md Section 6 for upgrade path).
+        // Phase 1: BinanceAdapter (Futures) is the only provider. Hardcoded.
+        // Data source: Binance USDⓈ-M Futures — Spot is geo-blocked in the US.
+        //   WS:   wss://fstream.binance.com/stream?streams=...
+        //   REST: https://fapi.binance.com/fapi/v1/depth
+        // See ADR-001 in ARCHITECTURE.md Section 8 for the full migration rationale.
+        // Phase 2: Replace with ServiceLoader discovery per SPEC-provider-spi.md Section 6.
         // ──────────────────────────────────────────────────────────────────
         MarketDataProvider provider = new BinanceAdapter(queue, instrumentSpec);
 

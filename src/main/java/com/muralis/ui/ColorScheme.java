@@ -28,7 +28,9 @@ public enum ColorScheme {
         Color.web("#f4a261"),   // statusReconnecting
         Color.web("#e63946"),   // statusDisconnected
         Color.web("#1e1e24"),   // gridLine
-        Color.web("#2a2a35")    // panelDivider
+        Color.web("#2a2a35"),   // panelDivider
+        Color.web("#1db954"),   // deltaBuyTint
+        Color.web("#e63946")    // deltaSellTint
     ),
 
     LIGHT(
@@ -55,7 +57,9 @@ public enum ColorScheme {
         Color.web("#e07820"),   // statusReconnecting
         Color.web("#e63946"),   // statusDisconnected
         Color.web("#dcdce0"),   // gridLine
-        Color.web("#c0c0cc")    // panelDivider
+        Color.web("#c0c0cc"),   // panelDivider
+        Color.web("#1db954"),   // deltaBuyTint
+        Color.web("#e63946")    // deltaSellTint
     );
 
     public final Color background;
@@ -82,6 +86,8 @@ public enum ColorScheme {
     public final Color statusDisconnected;
     public final Color gridLine;
     public final Color panelDivider;
+    public final Color deltaBuyTint;
+    public final Color deltaSellTint;
 
     ColorScheme(
         Color background,
@@ -107,7 +113,9 @@ public enum ColorScheme {
         Color statusReconnecting,
         Color statusDisconnected,
         Color gridLine,
-        Color panelDivider
+        Color panelDivider,
+        Color deltaBuyTint,
+        Color deltaSellTint
     ) {
         this.background = background;
         this.panelBackground = panelBackground;
@@ -133,5 +141,7 @@ public enum ColorScheme {
         this.statusDisconnected = statusDisconnected;
         this.gridLine = gridLine;
         this.panelDivider = panelDivider;
+        this.deltaBuyTint = deltaBuyTint;
+        this.deltaSellTint = deltaSellTint;
     }
 }

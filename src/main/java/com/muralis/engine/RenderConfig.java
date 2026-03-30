@@ -8,12 +8,20 @@ package com.muralis.engine;
  */
 public class RenderConfig {
 
-    private volatile long bubbleDecayMs = 5_000L;
-    private volatile int  visibleLevels = 20;
+    private volatile long    bubbleDecayMs     = 5_000L;
+    private volatile int     visibleLevels     = 20;
+    private volatile boolean deltaTintEnabled  = true;
+    private volatile double  deltaTintIntensity = 0.5;
 
     public long bubbleDecayMs()                  { return bubbleDecayMs; }
     public void setBubbleDecayMs(long ms)        { this.bubbleDecayMs = ms; }
 
     public int  visibleLevels()                  { return visibleLevels; }
     public void setVisibleLevels(int levels)     { this.visibleLevels = levels; }
+
+    public boolean deltaTintEnabled()                    { return deltaTintEnabled; }
+    public void setDeltaTintEnabled(boolean enabled)     { this.deltaTintEnabled = enabled; }
+
+    public double deltaTintIntensity()                   { return deltaTintIntensity; }
+    public void setDeltaTintIntensity(double intensity)  { this.deltaTintIntensity = intensity; }
 }

@@ -82,6 +82,7 @@ application {
 tasks.test {
     useJUnitPlatform()
     jvmArgs(
+        "-ea",
         "-Xms128m",
         "-Xmx512m",
         "--add-opens=javafx.graphics/com.sun.javafx.application=ALL-UNNAMED"

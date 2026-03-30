@@ -11,9 +11,9 @@ public class RenderConfig {
     private volatile long bubbleDecayMs = 5_000L;
     private volatile int  visibleLevels = 20;
 
-    long bubbleDecayMs()                  { return bubbleDecayMs; }
-    void setBubbleDecayMs(long ms)        { this.bubbleDecayMs = ms; }
+    public long bubbleDecayMs()                  { return bubbleDecayMs; }
+    public void setBubbleDecayMs(long ms)        { this.bubbleDecayMs = ms; }
 
-    int  visibleLevels()                  { return visibleLevels; }
-    void setVisibleLevels(int levels)     { this.visibleLevels = levels; }
+    public int  visibleLevels()                  { return visibleLevels; }
+    public void setVisibleLevels(int levels)     { this.visibleLevels = levels; }
 }

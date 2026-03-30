@@ -124,8 +124,9 @@ class LadderPainter {
                 long delta = snap.priceDeltaMap().getOrDefault(price, 0L);
                 if (delta == 0L) continue;
 
-                double normalised = (double) Math.abs(delta)
-                                    / (double) snap.maxAbsDelta();
+                double logDelta   = Math.log1p(Math.abs(delta));
+                double logMax     = Math.log1p(snap.maxAbsDelta());
+                double normalised = (logMax > 0) ? logDelta / logMax : 0.0;
                 double intensity = normalised * renderConfig.deltaTintIntensity();
                 double alpha = intensity * MAX_DELTA_ALPHA;
                 if (alpha < 0.02) continue;

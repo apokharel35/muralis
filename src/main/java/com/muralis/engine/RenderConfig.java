@@ -6,7 +6,7 @@ package com.muralis.engine;
  * All fields are volatile — single writer, single reader, no compound operations,
  * so volatile provides sufficient visibility without synchronisation overhead.
  */
-class RenderConfig {
+public class RenderConfig {
 
     private volatile long bubbleDecayMs = 5_000L;
     private volatile int  visibleLevels = 20;

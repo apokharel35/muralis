@@ -41,10 +41,12 @@ public class OrderBookEngine implements MarketDataListener {
 
     private final OrderBook        orderBook        = new OrderBook();
     private final TradeBuffer      tradeBuffer      = new TradeBuffer();
-    private final DeltaAccumulator deltaAccumulator = new DeltaAccumulator();
+    private final DeltaAccumulator  deltaAccumulator  = new DeltaAccumulator();
+    private final VolumeAccumulator volumeAccumulator = new VolumeAccumulator();
 
     private volatile boolean running              = false;
     private volatile boolean deltaResetRequested  = false;
+    private volatile boolean volumeResetRequested = false;
     private long             lastSnapshotTs = 0L;
     private ConnectionState  connectionState = ConnectionState.CONNECTING;
 
@@ -78,6 +80,10 @@ public class OrderBookEngine implements MarketDataListener {
         deltaResetRequested = true;
     }
 
+    public void requestVolumeReset() {
+        volumeResetRequested = true;
+    }
+
     // ── MarketDataListener — forwarding only (ingestion thread) ────────
 
     @Override public void onSnapshot(OrderBookSnapshot s)    { queue.offer(s); }
@@ -108,6 +114,10 @@ public class OrderBookEngine implements MarketDataListener {
             if (deltaResetRequested) {
                 deltaAccumulator.clear();
                 deltaResetRequested = false;
+            }
+            if (volumeResetRequested) {
+                volumeAccumulator.clear();
+                volumeResetRequested = false;
             }
             snapshotRef.set(buildSnapshot());
         }
@@ -163,6 +173,7 @@ public class OrderBookEngine implements MarketDataListener {
                 t.aggressorSide(), t.exchangeTs(), t.receivedTs());
         tradeBuffer.add(blip);
         deltaAccumulator.accumulate(t.price(), t.qty(), t.aggressorSide());
+        volumeAccumulator.accumulate(t.price(), t.qty());
     }
 
     private void applyConnectionEvent(ConnectionEvent c) {
@@ -172,6 +183,7 @@ public class OrderBookEngine implements MarketDataListener {
                 orderBook.clear();
                 tradeBuffer.clear();
                 deltaAccumulator.clear();
+                volumeAccumulator.clear();
                 LOG.log(System.Logger.Level.INFO,
                         "[{0}] Connecting...", instrumentSpec.symbol());
             }
@@ -185,6 +197,7 @@ public class OrderBookEngine implements MarketDataListener {
                 orderBook.clear();
                 tradeBuffer.clear();
                 deltaAccumulator.clear();
+                volumeAccumulator.clear();
                 LOG.log(System.Logger.Level.WARNING,
                         "[{0}] Reconnecting. Reason: {1}",
                         instrumentSpec.symbol(), c.reason());

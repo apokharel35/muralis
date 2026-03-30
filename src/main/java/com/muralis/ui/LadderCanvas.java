@@ -64,6 +64,9 @@ public class LadderCanvas extends Region {
                     return;
                 }
 
+                // Step 1b — sync tick size from instrument spec
+                view.tickSize = snap.instrumentSpec().tickSize();
+
                 // Step 2 — auto-centre on mid-price unless user has overridden (Section 4.4)
                 if (!userScrolled
                         && snap.bidPrices().length > 0

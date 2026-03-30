@@ -11,12 +11,14 @@ class LadderView {
     int    visibleRows;
     double scrollOffsetTicks;
     long   centrePrice;
+    long   tickSize;
 
     LadderView(double canvasHeight) {
         this.canvasHeight      = canvasHeight;
         this.rowHeightPx       = 20.0;
         this.scrollOffsetTicks = 0.0;
         this.centrePrice       = 0L;
+        this.tickSize          = 1L;
         this.visibleRows       = computeVisibleRows();
     }
 
@@ -41,14 +43,15 @@ class LadderView {
     // Higher prices → lower Y (top of screen).
     // referencePrice maps to canvasHeight/2 when scrollOffsetTicks == 0.
     double priceToY(long price, long referencePrice) {
-        double tickOffset = (double)(referencePrice - price) - scrollOffsetTicks;
+        double tickOffset = (double)(referencePrice - price) / tickSize - scrollOffsetTicks;
         return canvasHeight / 2.0 + tickOffset * rowHeightPx;
     }
 
-    // Inverse of priceToY: canvas Y → nearest price level.
+    // Inverse of priceToY: canvas Y → nearest price level (snapped to tick grid).
     long yToPrice(double y, long referencePrice) {
-        double ticks = (y - canvasHeight / 2.0) / rowHeightPx;
-        return Math.round((double) referencePrice - scrollOffsetTicks - ticks);
+        double adjustedOffset = (y - canvasHeight / 2.0) / rowHeightPx;
+        long tickCount = Math.round(adjustedOffset + scrollOffsetTicks);
+        return referencePrice - tickCount * tickSize;
     }
 
     // Adjust row height by deltaRowHeight, clamped to [MIN_ROW_PX, MAX_ROW_PX].

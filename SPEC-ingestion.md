@@ -29,43 +29,51 @@ new top-level class.
 
 ---
 
-## 2. Binance WebSocket streams
+## 2. Binance USDⓈ-M Futures WebSocket streams
+
+> **ADR-001:** Switched from Binance Spot to Futures. See
+> ARCHITECTURE.md Section 8 for rationale.
 
 ### 2.1 Connection URL
 ```
-wss://stream.binance.com:9443/stream?streams=<symbol>@depth@100ms/<symbol>@trade
+wss://fstream.binance.com/stream?streams=<symbol>@depth20@100ms/<symbol>@depth@100ms/<symbol>@aggTrade
 ```
 
 For BTCUSDT:
 ```
-wss://stream.binance.com:9443/stream?streams=btcusdt@depth@100ms/btcusdt@trade
+wss://fstream.binance.com/stream?streams=btcusdt@depth20@100ms/btcusdt@depth@100ms/btcusdt@aggTrade
 ```
 
 **Rules:**
 - Symbol in the URL is **lowercase** (Binance requirement)
-- Both streams are combined into a single WebSocket connection
+- **Three** streams are combined into a single WebSocket connection:
+  - `@depth20@100ms` — partial book snapshot (top 20 levels), used for bootstrap only
+  - `@depth@100ms` — incremental depth updates (diffs), used for live book maintenance
+  - `@aggTrade` — aggregate trade events
 - The combined stream wraps each message in an envelope:
   ```json
   { "stream": "btcusdt@depth@100ms", "data": { ... } }
   ```
 - The `stream` field is used to route the `data` payload to the correct
-  parser method — depth parser or trade parser
+  handler — depth20 handler, depth diff handler, or aggTrade handler
 
 ### 2.2 Depth stream (`@depth@100ms`)
 Update frequency: every 100ms. Each message is a diff (delta) update.
 
-**Raw message shape:**
+**Raw message shape (Futures):**
 ```json
 {
   "stream": "btcusdt@depth@100ms",
   "data": {
     "e": "depthUpdate",
     "E": 1234567891234,
+    "T": 1234567891233,
     "s": "BTCUSDT",
     "U": 10041,
     "u": 10045,
-    "b": [["97432.51", "1.23400000"], ["97431.00", "0.00000000"]],
-    "a": [["97433.00", "0.50000000"]]
+    "pu": 10040,
+    "b": [["97432.5", "1.234"], ["97431.0", "0.000"]],
+    "a": [["97433.0", "0.500"]]
   }
 }
 ```
@@ -75,31 +83,42 @@ Update frequency: every 100ms. Each message is a diff (delta) update.
 | JSON field | Meaning | Maps to |
 |---|---|---|
 | `E` | Event time (ms) | `exchangeTs` |
+| `T` | Transaction time (ms) | *ignored* — informational only |
 | `s` | Symbol (uppercase) | `symbol` |
 | `U` | First update ID in batch | `firstUpdateId` |
 | `u` | Last update ID in batch | `finalUpdateId` |
+| `pu` | Previous final update ID | *used by adapter for gap detection — NOT passed to engine* |
 | `b` | Bid changes `[price, qty][]` | `bidPrices[]`, `bidQtys[]` |
 | `a` | Ask changes `[price, qty][]` | `askPrices[]`, `askQtys[]` |
 
-**Critical parsing rule:** A quantity of `"0.00000000"` means **remove
+**`pu` field (Futures only):** The `pu` field links each delta to the
+previous one. The adapter uses it for gap detection internally (see
+Section 4). It is NOT added to the `OrderBookDelta` record — keeping
+the model types provider-agnostic.
+
+**Critical parsing rule:** A quantity of `"0.000"` means **remove
 that price level**. It must be stored as `0L` in the delta. The engine
 interprets `qty == 0L` as a deletion instruction. This is not a
 zero-volume level — it is an absence instruction.
 
-### 2.3 Trade stream (`@trade`)
-Delivered in real time for every matched trade.
+### 2.3 Aggregate trade stream (`@aggTrade`)
+Delivered for every aggregate trade. Fills at the same price and same
+taker side within 100ms are bundled into a single event.
 
-**Raw message shape:**
+**Raw message shape (Futures):**
 ```json
 {
-  "stream": "btcusdt@trade",
+  "stream": "btcusdt@aggTrade",
   "data": {
-    "e": "trade",
+    "e": "aggTrade",
     "E": 1234567891234,
     "s": "BTCUSDT",
-    "t": 12345,
-    "p": "97432.51",
-    "q": "0.00041800",
+    "a": 5933014,
+    "p": "97432.5",
+    "q": "0.041",
+    "nq": "0.041",
+    "f": 100,
+    "l": 105,
     "T": 1234567891123,
     "m": true
   }
@@ -112,17 +131,24 @@ Delivered in real time for every matched trade.
 |---|---|---|
 | `T` | Trade time (ms) | `exchangeTs` — use `T`, not `E` |
 | `s` | Symbol | `symbol` |
-| `t` | Trade ID | `tradeId` |
+| `a` | Aggregate trade ID | `tradeId` **(NOT `t` — Futures has no `t` field)** |
 | `p` | Price (string) | `price` (via `parsePrice()`) |
-| `q` | Quantity (string) | `qty` (via `parseQty()`) |
+| `q` | Aggregate quantity (string) | `qty` (via `parseQty()`) |
 | `m` | isBuyerMaker | `aggressorSide` (via derivation rule) |
+| `nq` | Normal qty (excludes RPI) | *ignored* — use `q` |
+| `f` | First constituent trade ID | *ignored* |
+| `l` | Last constituent trade ID | *ignored* |
 
 **Critical field note:** Use `T` (trade time) for `exchangeTs`, not `E`
 (event time). `T` is when the trade matched on the exchange. `E` is when
 the event was published to the stream — always slightly later. For candle
 and bubble timing, `T` is the correct timestamp.
 
-**`AggressorSide` derivation (defined once here, never elsewhere):**
+**Critical field note:** Use `a` (aggregate trade ID) for `tradeId`, not
+`t`. The Futures `@aggTrade` stream does not have a `t` field. The `a`
+field serves the same purpose for deduplication in `TradeBuffer`.
+
+**`AggressorSide` derivation (unchanged from Spot — same `m` semantics):**
 ```
 m == false  →  AggressorSide.BUY   (buyer lifted the offer)
 m == true   →  AggressorSide.SELL  (seller hit the bid)
@@ -130,146 +156,191 @@ m == true   →  AggressorSide.SELL  (seller hit the bid)
 
 ---
 
-## 3. Snapshot bootstrap sequence
+## 3. Snapshot bootstrap sequence (WebSocket-only)
 
 This is the most critical procedure in the ingestion layer. An incorrect
 bootstrap produces a corrupted order book that will never self-correct.
-The sequence must be followed exactly.
+
+> **ADR-001 Addendum:** The original design used a REST snapshot from
+> `fapi.binance.com/fapi/v1/depth`. This endpoint is geo-blocked for
+> US IPs (HTTP 451), same as Spot. The bootstrap was redesigned to use
+> the `@depth20@100ms` WebSocket stream as the snapshot source. No REST
+> call is required. See `ADR-001-binance-futures.md` for full analysis.
 
 ### 3.1 Full bootstrap sequence
 
 ```
 Step 1. Open WebSocket connection to combined stream URL
-        Begin buffering ALL incoming depth events in a local
-        ConcurrentLinkedQueue<OrderBookDelta> (the "pre-buffer")
-        Do NOT publish any delta to the main queue yet.
-        Trade events MAY be published to the main queue immediately —
-        they are not affected by snapshot sequencing.
+        (three streams: @depth20@100ms, @depth@100ms, @aggTrade)
+
+        During bootstrap (before sync):
+        - IGNORE all @depth diff messages (do not buffer, do not publish)
+        - @aggTrade messages MAY be published to the main queue
+          immediately — they are not affected by snapshot sequencing
+        - @depth20 messages are processed as snapshot candidates
 
 Step 2. Publish ConnectionEvent(CONNECTING) to the main queue.
 
-Step 3. Fetch REST snapshot:
-        GET https://api.binance.com/api/v3/depth?symbol=BTCUSDT&limit=5000
-        Parse response into OrderBookSnapshot.
-        Record snapshot.lastUpdateId.
+Step 3. Wait for the first @depth20@100ms message.
+        Parse it as an OrderBookSnapshot:
+        - bids and asks from the arrays (top 20 levels each)
+        - lastUpdateId from the "u" field
+        - exchangeTs from the "E" field
+        Publish OrderBookSnapshot to the main queue.
 
-Step 4. Validate the pre-buffer against the snapshot:
-        Discard any buffered delta where delta.finalUpdateId <= snapshot.lastUpdateId
-        These deltas describe state already included in the snapshot.
+Step 4. Set awaitingFirstDiff = true
+        Set lastPublishedFinalUpdateId = snapshot's "u" value
 
-Step 5. Find the first valid delta in the pre-buffer:
-        A delta is valid as the first delta if and only if:
-            delta.firstUpdateId <= snapshot.lastUpdateId + 1
-            AND
-            delta.finalUpdateId >= snapshot.lastUpdateId + 1
+Step 5. When the first @depth diff arrives after sync:
+        - Accept it UNCONDITIONALLY (no pu validation)
+        - Set lastPublishedFinalUpdateId = diff.finalUpdateId
+        - Set awaitingFirstDiff = false
+        - Publish diff to the main queue
+        This anchors the diff chain. All subsequent diffs validate
+        normally via pu.
 
-        If no valid first delta exists in the pre-buffer:
-            → The snapshot is stale. Discard it and the pre-buffer.
-            → Wait 250ms.
-            → Return to Step 3 (re-fetch snapshot).
-            → Do not increment the reconnect counter — this is
-              normal bootstrap behaviour, not a failure.
+Step 6. All subsequent @depth diffs follow normal gap detection
+        (Section 4).
 
-Step 6. Publish OrderBookSnapshot to the main queue.
+Step 7. IGNORE all @depth20 messages after sync — do not parse,
+        do not process.
 
-Step 7. Publish all valid buffered deltas to the main queue in order,
-        starting from the first valid delta identified in Step 5.
-
-Step 8. Switch to live mode: stop buffering. Publish all subsequent
-        depth deltas directly to the main queue as they arrive.
-
-Step 9. Publish ConnectionEvent(CONNECTED) to the main queue.
+Step 8. Publish ConnectionEvent(CONNECTED) to the main queue.
 ```
 
-### 3.2 Sequence diagram
+### 3.2 Why the first diff is accepted unconditionally
+
+The `@depth20` and `@depth` diff streams use **different update ID
+sequences**. The `@depth20` stream's `u` value will never appear as
+a diff's `pu` value. Attempting pu-chain validation between them
+causes an infinite gap detection loop.
+
+Accepting the first diff unconditionally may introduce a brief
+(~100ms) inconsistency between the snapshot state and the first
+diff. This self-corrects within one update cycle and is not visible
+to the trader.
+
+### 3.3 Why the book starts with 20 levels
+
+The `@depth20` stream provides only the top 20 bid and 20 ask levels.
+The full book builds out within 1-2 seconds as diffs add new price
+levels beyond the initial 20. For a visualization tool this is
+visually indistinguishable from a REST-based 1000-level bootstrap
+after the first couple of seconds.
+
+### 3.4 Sequence diagram
+
 ```
-WebSocket         pre-buffer          REST             main queue
-    │                  │               │                    │
-    │──depth delta─────▶ buffer        │                    │
-    │──depth delta─────▶ buffer        │                    │
-    │──trade───────────────────────────────────────────────▶│ (trades bypass buffer)
-    │                  │               │                    │
-    │                  │   GET /depth──▶                    │
-    │                  │               │──snapshot──────────▶│ (Step 6)
-    │                  │               │                    │
-    │──depth delta─────▶ buffer        │                    │
-    │                  │               │                    │
-    │                  │  validate + drain buffer ──────────▶│ (Step 7)
-    │                  │               │                    │
-    │──depth delta─────────────────────────────────────────▶│ (live mode, Step 8)
+WebSocket (3 streams)                              main queue
+    │                                                  │
+    │──@depth20 (snapshot)─────── parse as snapshot ───▶│ (Step 3)
+    │──@depth diff───────── accept unconditionally ───▶│ (Step 5, anchors chain)
+    │──@aggTrade──────────────────────────────────────▶│ (trades always flow)
+    │──@depth diff───── pu validation (normal) ──────▶│ (Step 6+)
+    │──@depth20────────── IGNORED after sync           │
 ```
 
-### 3.3 Snapshot REST endpoint details
-```
-URL:     https://api.binance.com/api/v3/depth
-Params:  symbol=BTCUSDT&limit=5000
-Method:  GET
-Client:  java.net.http.HttpClient (JDK 11+, zero extra dependency)
-Timeout: 10 seconds connect + 10 seconds read
-```
+### 3.5 `@depth20@100ms` message format
 
-**Response shape:**
 ```json
 {
-  "lastUpdateId": 10040,
-  "bids": [["97432.51", "1.23400000"], ...],
-  "asks": [["97433.00", "0.50000000"], ...]
+  "e": "depthUpdate",
+  "E": 1571889248277,
+  "T": 1571889248276,
+  "s": "BTCUSDT",
+  "U": 390497796,
+  "u": 390497878,
+  "pu": 390497794,
+  "b": [
+    ["67083.40", "0.002"],
+    ["67083.30", "3.906"],
+    ... (up to 20 levels)
+  ],
+  "a": [
+    ["67083.50", "3.340"],
+    ["67083.60", "4.525"],
+    ... (up to 20 levels)
+  ]
 }
 ```
 
-`lastUpdateId` is the sequence ID corresponding to this snapshot.
-`bids` are sorted descending by price. `asks` are sorted ascending.
-Both must be parsed into fixed-point `long[]` arrays using the canonical
-`parsePrice()` and `parseQty()` patterns from `DATA-CONTRACTS.md` Section 7.
+For bootstrap purposes:
+- Use `u` as `lastUpdateId` for the snapshot
+- Use `E` as `exchangeTs`
+- Parse bids and asks with the existing `parsePrice()`/`parseQty()` methods
+- `pu` field is ignored during bootstrap (only used in live diff validation)
+
+### 3.6 `SnapshotFetcher` status
+
+`SnapshotFetcher.java` remains in the codebase but is **not called**
+during the bootstrap sequence. It is preserved for:
+- Future use if a non-geo-blocked REST endpoint becomes available
+- Non-US deployments where `fapi.binance.com` is accessible
+- Testing against a local mock server
+
+The REST endpoint details are:
+```
+URL:     https://fapi.binance.com/fapi/v1/depth
+Params:  symbol=BTCUSDT&limit=1000
+Status:  GEO-BLOCKED for US IPs (HTTP 451)
+```
 
 ---
 
 ## 4. Gap detection
 
 Once in live mode (Step 8 above), every incoming delta must be checked
-for sequence continuity.
+for sequence continuity. The Futures depth stream includes a `pu`
+(previous final update ID) field that enables direct chain validation.
 
-### 4.1 Gap detection rule
+### 4.1 Gap detection rule (using `pu` field)
 
 Gap detection is performed by `BinanceAdapter` on the ingestion thread,
 **before** publishing the delta to the main queue. The adapter tracks
 the last published delta's `finalUpdateId` in a field called
-`lastPublishedFinalUpdateId`. This naming clarifies that it is the
-adapter (not the engine) performing sequence validation.
+`lastPublishedFinalUpdateId`.
 
 ```
 For each incoming delta after the first:
-    expected = lastPublishedFinalUpdateId + 1
 
-    if delta.firstUpdateId != expected:
+    // Step 1: Check for duplicates first
+    if delta.finalUpdateId <= lastPublishedFinalUpdateId:
+        → Log: DEBUG "Duplicate delta received on {symbol}, discarding."
+        → Discard silently. Do not reconnect.
+        → Return
+
+    // Step 2: Validate chain using pu field
+    if delta.pu != lastPublishedFinalUpdateId:
         → GAP DETECTED
-        → Log: WARN "Gap detected on {symbol}: expected firstUpdateId={expected},
-                got {delta.firstUpdateId}. Triggering reconnect."
+        → Log: WARN "Gap detected on {symbol}: expected pu={lastPublishedFinalUpdateId},
+                got pu={delta.pu}. Triggering reconnect."
         → Publish ConnectionEvent(RECONNECTING, reason="Gap detected: ...")
         → Discard the corrupted delta (do not apply it)
         → Trigger reconnection sequence (Section 5)
         → Return — do not process further events until reconnected
 
-    else:
-        → Publish delta to main queue
-        → lastPublishedFinalUpdateId = delta.finalUpdateId
+    // Step 3: Valid delta — publish
+    → Publish delta to main queue
+    → lastPublishedFinalUpdateId = delta.finalUpdateId
 ```
 
-### 4.2 What constitutes a gap
-A gap is any delta where `firstUpdateId` does not equal
-`lastPublishedFinalUpdateId + 1`. This includes:
+### 4.2 Why `pu` is better than computing `expected = last + 1`
 
-- Missing updates (network packet loss)
-- Duplicate updates (`firstUpdateId < expected`) — log and discard
-  without triggering reconnect, as duplicates are harmless
-- Out-of-order updates (`firstUpdateId > expected`) — always reconnect
+The Spot approach required: `delta.firstUpdateId == lastPublished + 1`.
+The Futures `pu` field is explicitly set by Binance to equal the previous
+delta's `u` value. This is a direct chain link — no arithmetic needed,
+and no ambiguity about whether `firstUpdateId` should equal `last + 1`
+or `last`.
 
-**Duplicate handling:**
-```
-if delta.finalUpdateId <= lastPublishedFinalUpdateId:
-    → Log: DEBUG "Duplicate delta received on {symbol}, discarding."
-    → Discard silently. Do not reconnect.
-```
+### 4.3 What constitutes a gap
+
+A gap is any delta where `pu` does not equal `lastPublishedFinalUpdateId`.
+This covers:
+
+- Missing updates (network packet loss) — `pu` will be ahead
+- Out-of-order updates — `pu` won't match
+- Duplicate updates — caught by the `finalUpdateId <=` check before
+  `pu` validation
 
 ---
 
@@ -362,10 +433,11 @@ Fields (all private):
     instrumentSpec   InstrumentSpec
     listeners        List<MarketDataListener>   (for ConnectionState callbacks)
     wsClient         BinanceWebSocketClient     (replaced on each reconnect)
-    preBuffer        ConcurrentLinkedQueue<OrderBookDelta>
     reconnectCount   int                        (reset on CONNECTED)
     disconnectTs     long                       (Phase 2 placeholder, record always)
     lastPublishedFinalUpdateId  long            (last published finalUpdateId; -1 = none)
+    awaitingFirstDiff  boolean                  (true after @depth20 sync, false after first diff)
+    synced           boolean                    (false during bootstrap, true after sync)
     state            ConnectionState            (current state, volatile)
 
 Public methods (from MarketDataProvider interface):
@@ -374,11 +446,10 @@ Public methods (from MarketDataProvider interface):
     void addListener(MarketDataListener l)
 
 Private methods:
-    void runBootstrap()               → Section 3 sequence
-    void handleDepthMessage(String)   → parse + buffer or publish delta
-    void handleTradeMessage(String)   → parse + publish trade
-    boolean detectGap(OrderBookDelta) → Section 4 rule
-    void triggerReconnect(String)     → Section 5 procedure
+    void handleDepth20Message(JsonObject) → parse as snapshot during bootstrap, ignore after sync
+    void handleDepthMessage(JsonObject)   → ignore during bootstrap, parse + validate after sync
+    void handleAggTradeMessage(JsonObject) → parse + publish trade (always)
+    void triggerReconnect(String)         → Section 5 procedure
     void publishEvent(MarketEvent)    → wraps queue.offer() with timeout logging
     void publishConnectionEvent(ConnectionState, String reason)
 ```
@@ -440,14 +511,20 @@ JsonObject envelope = gson.fromJson(message, JsonObject.class);
 String stream = envelope.get("stream").getAsString();
 JsonObject data = envelope.getAsJsonObject("data");
 
-if (stream.endsWith("@depth@100ms")) {
+if (stream.contains("@depth20")) {
+    adapter.handleDepth20Message(data);
+} else if (stream.endsWith("@depth@100ms")) {
     adapter.handleDepthMessage(data);
-} else if (stream.endsWith("@trade")) {
-    adapter.handleTradeMessage(data);
+} else if (stream.endsWith("@aggTrade")) {
+    adapter.handleAggTradeMessage(data);
 } else {
     log.warn("Unknown stream type received: {}", stream);
 }
 ```
+
+**Note:** The `@depth20` check uses `contains()` (not `endsWith()`)
+and is checked BEFORE `@depth@100ms` to prevent `@depth20@100ms`
+from matching the `@depth@100ms` endsWith check.
 
 ---
 
@@ -461,7 +538,8 @@ Constructor:
 
 Public methods:
     OrderBookDelta parseDelta(JsonObject data)
-    NormalizedTrade parseTrade(JsonObject data)
+    long           parsePu(JsonObject data)      → extracts `pu` field for adapter gap detection
+    NormalizedTrade parseAggTrade(JsonObject data)
 
 Private methods:
     long parsePrice(String raw)   → uses instrumentSpec.priceScale
@@ -497,8 +575,13 @@ violation that cannot be recovered from silently.
 - Arrays may have length 0 if the delta contains no changes for that side
 - A parsed qty of `0L` means remove the level — preserved as-is, not filtered
 - `receivedTs` is set to `System.currentTimeMillis()` inside the parser
+- The `pu` field is NOT included in the `OrderBookDelta` record — it is
+  returned separately via `parsePu()` for adapter-internal gap detection
 
-### 8.3 `parseTrade` output contract
+### 8.3 `parseAggTrade` output contract
+- `tradeId` is set from the `a` field (aggregate trade ID), NOT `t`
+- `qty` is set from the `q` field (aggregate quantity of all fills)
+- Fields `nq`, `f`, `l` are ignored — not relevant for visualization
 - `aggressorSide` is derived from `m` (isBuyerMaker) field:
   `m=false → BUY`, `m=true → SELL`
 - `exchangeTs` is set from the `T` field (trade time), not `E` (event time)
@@ -506,7 +589,12 @@ violation that cannot be recovered from silently.
 
 ---
 
-## 9. `SnapshotFetcher` — class specification
+## 9. `SnapshotFetcher` — class specification (INACTIVE in Phase 1)
+
+> **Not called during bootstrap.** The REST endpoint `fapi.binance.com`
+> is geo-blocked for US IPs (HTTP 451). Bootstrap uses `@depth20`
+> WebSocket stream instead (Section 3). This class is preserved for
+> future use if REST access becomes available.
 
 ```
 package com.muralis.ingestion
@@ -528,11 +616,17 @@ Public methods:
 - `SnapshotFetchException` is a checked exception defined in this package
 
 ### 9.2 `exchangeTs` for snapshot
-Binance's REST snapshot response does not include a timestamp field in
-the body. Use the HTTP response header `Date` if present, parsed to
-epoch milliseconds. If not present, use `System.currentTimeMillis()` at
-the moment the response body is fully received. Document this in a code
-comment — it is a known approximation.
+The Futures REST snapshot response includes an `E` (event time) field
+in the response body. Use this directly as `exchangeTs`. This is an
+improvement over Spot, where `E` was absent and we had to parse the
+HTTP `Date` header as a fallback.
+
+```java
+long exchangeTs = responseJson.get("E").getAsLong();
+```
+
+If `E` is absent for any reason, fall back to
+`System.currentTimeMillis()` and log a WARN.
 
 ---
 
@@ -573,5 +667,5 @@ implemented in the `ingestion/` package:
 
 ---
 
-*Last updated: SPEC-ingestion.md v1.1 — Gap detection field renamed to lastPublishedFinalUpdateId for clarity. Symbol validation added to connect().*
+*Last updated: SPEC-ingestion.md v1.3 — Bootstrap rewritten for WebSocket-only (@depth20 snapshot). REST endpoint geo-blocked. Three-stream connection. awaitingFirstDiff pattern. SnapshotFetcher marked inactive.*
 *Next file: SPEC-engine.md*

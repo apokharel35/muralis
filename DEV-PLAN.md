@@ -120,15 +120,15 @@ and `com.muralis.provider`. These are pure data classes — no logic, no
 threads, no network.
 
 **What gets built:**
-- `AggressorSide.java` (enum — in `model/`)
-- `ConnectionState.java` (enum — in `model/`)
-- `MarketEvent.java` (sealed interface — in `model/`)
-- `OrderBookSnapshot.java` (record implementing MarketEvent — in `model/`)
-- `OrderBookDelta.java` (record implementing MarketEvent — in `model/`)
-- `NormalizedTrade.java` (record implementing MarketEvent — in `model/`)
-- `ConnectionEvent.java` (record implementing MarketEvent — in `model/`)
-- `InstrumentSpec.java` (record — in `model/` — does NOT implement MarketEvent)
-- `ProviderType.java` (enum — in `provider/`)
+- `AggressorSide.java` (enum)
+- `MarketEvent.java` (sealed interface)
+- `OrderBookSnapshot.java` (record implementing MarketEvent)
+- `OrderBookDelta.java` (record implementing MarketEvent)
+- `NormalizedTrade.java` (record implementing MarketEvent)
+- `InstrumentSpec.java` (record implementing MarketEvent)
+- `ConnectionEvent.java` (record implementing MarketEvent)
+- `ConnectionState.java` (enum)
+- `ProviderType.java` (enum)
 
 **What you will see:**
 `./gradlew build` passes with zero errors. No runtime behaviour yet.
@@ -146,20 +146,9 @@ Read DATA-CONTRACTS.md and ARCHITECTURE.md Section 3 (package structure).
 Generate all classes in com.muralis.model and com.muralis.provider
 exactly as specified in DATA-CONTRACTS.md Sections 2, 3, and 4.
 
-Package placement:
-- com.muralis.model: AggressorSide, ConnectionState, MarketEvent,
-  OrderBookSnapshot, OrderBookDelta, NormalizedTrade, ConnectionEvent,
-  InstrumentSpec
-- com.muralis.provider: ProviderType
-
 Rules:
 - All event types (OrderBookSnapshot, OrderBookDelta, NormalizedTrade,
   ConnectionEvent) must implement the MarketEvent sealed interface
-- InstrumentSpec does NOT implement MarketEvent — it is a configuration
-  record, not a queue event
-- ConnectionState and ConnectionEvent live in com.muralis.model (not
-  provider) so the MarketEvent sealed permits clause works without
-  cross-package dependency
 - All classes are records or enums — no mutable state, no setters
 - No business logic in any of these classes
 - Follow the field names from DATA-CONTRACTS.md exactly —
@@ -168,13 +157,9 @@ Rules:
 After generating, verify:
 - MarketEvent sealed interface permits exactly:
   OrderBookSnapshot, OrderBookDelta, NormalizedTrade, ConnectionEvent
-- All four permitted types are in com.muralis.model (same package)
-- InstrumentSpec is NOT in the permits list
 - All price and quantity fields are long — not double, not BigDecimal
 - All timestamp fields are named exchangeTs or receivedTs and are long
 - AggressorSide has exactly two values: BUY and SELL
-- ConnectionState has exactly four values: CONNECTING, CONNECTED,
-  RECONNECTING, DISCONNECTED
 
 Do not generate any ingestion, engine, or UI classes yet.
 ```
@@ -257,7 +242,6 @@ Read ARCHITECTURE.md Section 4 for import rules.
 Generate the following classes in com.muralis.engine:
 
 1. TradeBlip.java — record as specified in SPEC-engine.md Section 5
-   - Must include receivedTs field (used for bubble decay, not exchangeTs)
 2. RenderSnapshot.java — record as specified in SPEC-engine.md Section 5
 3. RenderConfig.java — class as specified in SPEC-engine.md Section 6
    - bubbleDecayMs field must be volatile
@@ -291,10 +275,11 @@ completing. In particular:
 
 ---
 
-## Step 4 — Binance adapter (network, no UI)
+## Step 4 — Binance Futures adapter (network, no UI)
 
-**Objective:** Connect to Binance, receive live data, and print parsed
-events to the console. This is the first step with network activity.
+**Objective:** Connect to Binance USDⓈ-M Futures, receive live data,
+and print parsed events to the console. This is the first step with
+network activity.
 
 **What gets built:**
 - `BinanceMessageParser.java`
@@ -307,7 +292,7 @@ Console output like:
 ```
 14:23:01.445 [muralis-engine] INFO  c.m.ingestion.BinanceAdapter — [BTCUSDT] WebSocket connected
 14:23:01.891 [muralis-engine] INFO  c.m.ingestion.BinanceAdapter — [BTCUSDT] Order book synced. lastUpdateId=48291044
-14:23:02.001 [muralis-engine] WARN  c.m.engine.OrderBookEngine — Best bid: 9743251, Best ask: 9743300
+14:23:02.001 [muralis-engine] WARN  c.m.engine.OrderBookEngine — Best bid: 974325, Best ask: 974330
 ```
 
 **What can go wrong:**
@@ -315,55 +300,65 @@ Console output like:
 - `longValueExact()` throws on first parse → Binance sent a price with
   more decimal places than `priceScale` expects → check your
   `InstrumentSpec.priceScale` value in `DATA-CONTRACTS.md` Section 5.1
+  (Futures BTCUSDT: priceScale=2, qtyScale=3)
 - WebSocket connection refused → check your internet connection and
-  that `wss://stream.binance.com:9443` is not blocked by a firewall
+  that `wss://fstream.binance.com` is reachable
 
 ### Claude Code prompt — Step 4:
 ```
 Read SPEC-ingestion.md in full.
 Read DATA-CONTRACTS.md Sections 1, 3, 5, and 7 (parsing boundary rules).
 Read ARCHITECTURE.md Section 4 for import rules.
+Read ARCHITECTURE.md Section 8 ADR-001 for Futures migration context.
 
 Generate the following classes in com.muralis.ingestion:
 
 1. BinanceMessageParser.java — as specified in SPEC-ingestion.md Section 8
    - parsePrice() and parseQty() must use BigDecimal.movePointRight().longValueExact()
-   - parseTrade() derives AggressorSide from isBuyerMaker field exactly
-     as specified in DATA-CONTRACTS.md Section 2.2
+   - parseAggTrade() reads tradeId from "a" field (NOT "t" — Futures
+     aggTrade has no "t" field)
+   - parseAggTrade() reads qty from "q" field (aggregate quantity)
+   - parseAggTrade() ignores "nq", "f", "l" fields
+   - parsePu() extracts the "pu" field from depth messages for gap detection
    - exchangeTs for trades comes from field "T" not "E"
+   - AggressorSide derived from "m" field exactly as DATA-CONTRACTS.md Section 2.2
 
 2. SnapshotFetcher.java — as specified in SPEC-ingestion.md Section 9
+   - REST URL: https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=1000
    - Uses java.net.http.HttpClient — no OkHttp, no Apache HttpClient
    - 10 second connect and read timeout
+   - exchangeTs from response body "E" field (Futures includes this)
    - Throws SnapshotFetchException (define this as a checked exception
      in the same package) on any non-200 response or timeout
 
 3. BinanceWebSocketClient.java — as specified in SPEC-ingestion.md Section 7
    - Extends org.java_websocket.client.WebSocketClient
    - Contains zero business logic — pure delegation to BinanceAdapter
-   - Routes messages by "stream" field in the envelope JSON
+   - Routes messages by "stream" field: @depth@100ms and @aggTrade
 
 4. BinanceAdapter.java — as specified in SPEC-ingestion.md Sections 6
    and the bootstrap sequence in Section 3 exactly
+   - WebSocket URL: wss://fstream.binance.com/stream?streams=...
+   - Streams: <symbol>@depth@100ms and <symbol>@aggTrade
    - Pre-buffer uses ConcurrentLinkedQueue<OrderBookDelta>
    - Bootstrap sequence follows all 9 steps in Section 3.1
-   - Gap detection follows Section 4.1 exactly — the tracking field is
-     named lastPublishedFinalUpdateId (not lastUpdateId or lastApplied)
+   - Gap detection uses pu field (Section 4.1) — NOT the old
+     firstUpdateId == lastPublished + 1 approach
+   - Adapter field is named lastPublishedFinalUpdateId
+   - pu is used internally by adapter only — NOT added to OrderBookDelta
    - Reconnection backoff follows Section 5.2 exactly
    - disconnectTs field is declared even though unused (Phase 2 placeholder)
-   - connect() must validate that config.symbol() matches
-     instrumentSpec.symbol() — throw IllegalArgumentException if not
 
 Then update Application.java to:
-- Create InstrumentSpec for BTCUSDT (from DATA-CONTRACTS.md Section 5.1)
+- Create InstrumentSpec for BTCUSDT Futures:
+  symbol="BTCUSDT", priceScale=2, tickSize=1L, qtyScale=3,
+  minQty=1L, currency="USDT", provider=BINANCE_FUTURES
 - Create LinkedTransferQueue<MarketEvent>
 - Create AtomicReference<RenderSnapshot> initialised to null
 - Create RenderConfig with default 5000ms decay
 - Create OrderBookEngine and start it
 - Create BinanceAdapter, add engine as listener, call connect()
-- Set MuralisApp.shutdownCallback = () -> adapter.disconnect()
-- Add a JVM shutdown hook that also calls adapter.disconnect()
-  (safety net in case JavaFX stop() is not called)
+- Add a shutdown hook that calls adapter.disconnect()
 - Keep MuralisApp launch commented out for now
 
 After the engine processes its first snapshot, add a temporary debug
@@ -433,13 +428,10 @@ Generate the following classes in com.muralis.ui:
    - MIN_ROW_PX=10, MAX_ROW_PX=60, default rowHeightPx=20
 
 4. Update MuralisApp.java:
-   - Read static fields snapshotRef, renderConfig, instrumentSpec,
-     shutdownCallback
+   - Read static fields snapshotRef, renderConfig, instrumentSpec
    - Create LadderCanvas and add to BorderPane CENTER
    - Add StatusBar (HBox, TOP) with placeholder "Connecting..." label
    - Add ControlBar (HBox, BOTTOM) with placeholder decay label
-   - Wire stage onCloseRequest to call shutdownCallback.run() then
-     Platform.exit()
    - No BubblePanel yet
 
 Verify against SPEC-rendering.md Section 10 performance rules and
@@ -475,8 +467,8 @@ over the decay window. Large trades produce larger circles.
 - All bubbles the same size → check the log formula uses `Math.log10`
   and the qty is correctly converted from fixed-point to double before
   the log calculation
-- Bubbles not fading → check that `blip.receivedTs()` is used for the
-  age calculation (not `exchangeTs` — see SPEC-rendering.md Section 6.3)
+- Bubbles not fading → check `System.currentTimeMillis()` is used for
+  the age calculation, not `exchangeTs`
 
 ### Claude Code prompt — Step 6:
 ```
@@ -488,13 +480,12 @@ Generate:
 
 1. BubblePainter.java — as specified in SPEC-rendering.md Section 6
    - Logarithmic size formula from Section 6.2 exactly
-   - Alpha decay formula from Section 6.3 exactly — uses blip.receivedTs()
-     not blip.exchangeTs() to avoid clock skew
-   - Horizontal drift formula from Section 6.4 exactly — also uses receivedTs
+   - Alpha decay formula from Section 6.3 exactly
+   - Horizontal drift formula from Section 6.4 exactly
    - Vertical position uses same price-to-pixel mapping as LadderPainter
    - Skip draw call entirely when alpha < 0.02
    - Paint qty label inside bubble only when diameter >= 18px
-   - Do NOT call gc.clip() — the panel Canvas bounds drawing naturally
+   - Clip all drawing to panel bounds
 
 2. Update MuralisApp.java:
    - Add a second Canvas (280px wide) to BorderPane RIGHT slot
@@ -607,16 +598,19 @@ Generate unit tests in src/test/java/com/muralis/ using JUnit 5 and AssertJ:
    - add() beyond MAX_BLIPS evicts the oldest blip
    - containsTradeId() returns true for added tradeId
    - containsTradeId() returns false after eviction
-   - getActive() excludes blips where receivedTs is older than decayMs
-   - getActive() uses receivedTs for the cutoff, not exchangeTs
+   - getActive() excludes blips older than decayMs
    - clear() empties the buffer and seenTradeIds
 
 3. BinanceMessageParserTest.java:
-   - parsePrice("97432.51", priceScale=2) returns 9743251L
+   - parsePrice("67083.40", priceScale=2) returns 6708340L
    - parsePrice("0.00", priceScale=2) returns 0L
-   - parseQty("0.00041800", qtyScale=8) returns 41800L
+   - parseQty("0.041", qtyScale=3) returns 41L
+   - parseQty("1.234", qtyScale=3) returns 1234L
+   - parseAggTrade reads tradeId from "a" field (not "t")
+   - parseAggTrade reads qty from "q" field
    - isBuyerMaker=false → AggressorSide.BUY
    - isBuyerMaker=true  → AggressorSide.SELL
+   - parsePu extracts "pu" field correctly
    - parsePrice with too many decimal places throws ArithmeticException
 
 Use InstrumentSpec for BTCUSDT from DATA-CONTRACTS.md Section 5.1
@@ -757,5 +751,5 @@ incremental generation with verification at each step.
 
 ---
 
-*DEV-PLAN.md v1.1 — Step 1 corrected (InstrumentSpec not MarketEvent, package placement clarified). Steps 4-8 updated for renamed fields, receivedTs, shutdownCallback, and clip fix.*
+*DEV-PLAN.md v1.3 — priceScale corrected to 2. Step 4 and Step 8 reflect Futures with WebSocket-only bootstrap.*
 *Do not begin Step 1 until Step 0 is verified working.*

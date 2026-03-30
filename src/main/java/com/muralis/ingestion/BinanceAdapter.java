@@ -1,5 +1,6 @@
 package com.muralis.ingestion;
 
+import com.google.gson.JsonObject;
 import com.muralis.model.ConnectionEvent;
 import com.muralis.model.ConnectionState;
 import com.muralis.model.InstrumentSpec;
@@ -24,7 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class BinanceAdapter implements MarketDataProvider {
 
     private static final Logger log = LoggerFactory.getLogger(BinanceAdapter.class);
-    private static final String DEFAULT_WS_BASE = "wss://stream.binance.com:9443/stream?streams=";
+    private static final String DEFAULT_WS_BASE = "wss://fstream.binance.com/stream?streams=";
     /** Backoff durations indexed by attempt number (1-based); index 0 unused. */
     private static final long[] BACKOFF_MS = {0L, 1_000L, 2_000L, 5_000L, 10_000L, 30_000L};
 
@@ -34,7 +35,8 @@ public class BinanceAdapter implements MarketDataProvider {
     private final AtomicReference<ConnectionState> state;
     private volatile BinanceWebSocketClient wsClient;
     private volatile long lastPublishedFinalUpdateId = -1L;
-    private final List<OrderBookDelta> preBuffer;
+    /** True after the @depth20 snapshot is published but before the first live diff is accepted. */
+    private boolean awaitingFirstDiff = false;
     private final Object reconnectLock = new Object();
     private int reconnectCount = 0;
     private long disconnectTs = -1L;   // Phase 2 placeholder: record on RECONNECTING
@@ -45,7 +47,6 @@ public class BinanceAdapter implements MarketDataProvider {
         this.spec = spec;
         this.listeners = new ArrayList<>();
         this.state = new AtomicReference<>(ConnectionState.DISCONNECTED);
-        this.preBuffer = new ArrayList<>();
     }
 
     @Override
@@ -76,7 +77,7 @@ public class BinanceAdapter implements MarketDataProvider {
 
         // Symbol must be lowercase per Binance combined-stream URL requirement
         String symbolLower = spec.symbol().toLowerCase();
-        String streams = symbolLower + "@depth@100ms/" + symbolLower + "@trade";
+        String streams = symbolLower + "@depth20@100ms/" + symbolLower + "@depth@100ms/" + symbolLower + "@aggTrade";
         lastWsUrl = (config.wsUrlOverride() != null)
             ? config.wsUrlOverride()
             : DEFAULT_WS_BASE + streams;
@@ -133,72 +134,83 @@ public class BinanceAdapter implements MarketDataProvider {
 
     void onWebSocketOpen() {
         state.set(ConnectionState.CONNECTED);
+        // CONNECTED listener event is deferred until the @depth20 snapshot is accepted
+    }
+
+    void handleDepth20Message(JsonObject json) {
+        // Once the snapshot has been published, ignore all subsequent @depth20 messages
+        if (lastPublishedFinalUpdateId != -1L) {
+            return;
+        }
+
+        // Accept the first @depth20 immediately — no pu-chain validation needed
+        OrderBookSnapshot snapshot = BinanceMessageParser.parseDepth20Snapshot(json, spec);
+        queue.offer(snapshot);
+        lastPublishedFinalUpdateId = snapshot.lastUpdateId();
+        awaitingFirstDiff = true;
+
+        log.info("[{}] @depth20 snapshot accepted. lastUpdateId={}", spec.symbol(), snapshot.lastUpdateId());
 
         ConnectionEvent connected = new ConnectionEvent(
-            spec.symbol(), ConnectionState.CONNECTED, System.currentTimeMillis(), "WebSocket open");
+            spec.symbol(), ConnectionState.CONNECTED, System.currentTimeMillis(), "Order book synced");
         for (MarketDataListener l : listeners) {
             l.onConnectionEvent(connected);
         }
-
-        SnapshotFetcher fetcher = new SnapshotFetcher(spec);
-        OrderBookSnapshot snapshot;
-        try {
-            snapshot = fetcher.fetch();
-        } catch (SnapshotFetcher.SnapshotFetchException e) {
-            log.error("[{}] Failed to fetch snapshot: {}", spec.symbol(), e.getMessage(), e);
-            return;
-        }
-
-        queue.offer(snapshot);
-        lastPublishedFinalUpdateId = snapshot.lastUpdateId();
-
-        // Drain pre-buffer: publish all deltas that overlap or immediately follow the snapshot
-        for (OrderBookDelta delta : preBuffer) {
-            if (delta.firstUpdateId() <= lastPublishedFinalUpdateId + 1) {
-                queue.offer(delta);
-                lastPublishedFinalUpdateId = delta.finalUpdateId();
-            }
-        }
-        preBuffer.clear();
-
-        log.info("[{}] Order book synced. lastUpdateId={}", spec.symbol(), lastPublishedFinalUpdateId);
     }
 
-    void onDepthMessage(OrderBookDelta delta) {
-        // Pre-bootstrap: buffer all deltas until the snapshot has been published
+    void handleDepthMessage(JsonObject json) {
+        // Discard all @depth diffs received before the @depth20 snapshot is accepted
         if (lastPublishedFinalUpdateId == -1L) {
-            preBuffer.add(delta);
             return;
         }
 
-        // Duplicate: delta is fully covered by already-published state
+        OrderBookDelta delta = BinanceMessageParser.parseDelta(json, spec);
+
+        // First diff after snapshot: accept unconditionally to anchor the pu-chain.
+        // The @depth20 and @depth streams use different update ID sequences, so the
+        // first diff's pu will not match the snapshot's lastUpdateId — skip the check.
+        if (awaitingFirstDiff) {
+            awaitingFirstDiff = false;
+            lastPublishedFinalUpdateId = delta.finalUpdateId();
+            queue.offer(delta);
+            log.info("[{}] First diff anchored. finalUpdateId={}", spec.symbol(), delta.finalUpdateId());
+            return;
+        }
+
+        // Stale: diff is fully covered by already-published state
         if (delta.finalUpdateId() <= lastPublishedFinalUpdateId) {
-            log.debug("[{}] Duplicate delta discarded. finalUpdateId={}", spec.symbol(), delta.finalUpdateId());
+            log.debug("[{}] Stale diff discarded. finalUpdateId={} lastPublished={}",
+                      spec.symbol(), delta.finalUpdateId(), lastPublishedFinalUpdateId);
             return;
         }
 
-        // Gap: sequence break — trigger reconnect
-        long expected = lastPublishedFinalUpdateId + 1;
-        if (delta.firstUpdateId() > expected) {
-            log.warn("[{}] Gap detected: expected={}, got={}", spec.symbol(), expected, delta.firstUpdateId());
+        long pu = BinanceMessageParser.parsePu(json);
+        if (pu == lastPublishedFinalUpdateId) {
+            // Valid next diff in the pu-chain — publish
+            if (!queue.offer(delta)) {
+                log.warn("Queue rejected event — type={}", delta.getClass().getSimpleName());
+            } else {
+                lastPublishedFinalUpdateId = delta.finalUpdateId();
+            }
+        } else {
+            // pu does not match — real gap in the diff stream
+            log.warn("[{}] Gap detected: pu={}, lastPublished={}", spec.symbol(), pu, lastPublishedFinalUpdateId);
             ConnectionEvent reconnecting = new ConnectionEvent(
                 spec.symbol(), ConnectionState.RECONNECTING, System.currentTimeMillis(),
-                "Gap detected: expected=" + expected + ", got=" + delta.firstUpdateId());
+                "Gap detected: pu=" + pu + ", lastPublished=" + lastPublishedFinalUpdateId);
             for (MarketDataListener l : listeners) {
                 l.onConnectionEvent(reconnecting);
             }
             state.set(ConnectionState.RECONNECTING);
-            return;
-        }
-
-        if (!queue.offer(delta)) {
-            log.warn("Queue rejected event — type={}", delta.getClass().getSimpleName());
-        } else {
-            lastPublishedFinalUpdateId = delta.finalUpdateId();
         }
     }
 
-    void onTradeMessage(NormalizedTrade trade) {
+    void handleAggTradeMessage(JsonObject json) {
+        // Suppress trades during bootstrap — engine has no book to correlate against yet
+        if (lastPublishedFinalUpdateId == -1L) {
+            return;
+        }
+        NormalizedTrade trade = BinanceMessageParser.parseAggTrade(json, spec);
         if (!queue.offer(trade)) {
             log.warn("Queue rejected event — type={}", trade.getClass().getSimpleName());
         }
@@ -243,7 +255,7 @@ public class BinanceAdapter implements MarketDataProvider {
 
             disconnectTs = System.currentTimeMillis();
             lastPublishedFinalUpdateId = -1L;
-            preBuffer.clear();
+            awaitingFirstDiff = false;
             state.set(ConnectionState.RECONNECTING);
 
             ConnectionEvent reconnecting = new ConnectionEvent(

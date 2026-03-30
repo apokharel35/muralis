@@ -20,6 +20,9 @@ public class MuralisApp extends Application {
     public void start(Stage stage) {
         BorderPane root = new BorderPane();
 
+        LadderCanvas ladderCanvas = new LadderCanvas(snapshotRef, renderConfig);
+        root.setCenter(ladderCanvas);
+
         Scene scene = new Scene(root, 1100, 800);
         scene.setFill(Color.web("#0d0d0f"));
 

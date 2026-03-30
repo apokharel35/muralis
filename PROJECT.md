@@ -41,10 +41,12 @@ Circles rendered on the ladder at the traded price level where:
   `isBuyerMaker` field — never inferred locally
 
 ### 2.3 Data source (Phase 1)
-- Binance Spot WebSocket (`wss://stream.binance.com:9443`)
-- Streams: `<symbol>@depth@100ms` + `<symbol>@trade`
-- Default instrument for development: `BTCUSDT`
+- Binance USDⓈ-M Futures WebSocket (`wss://fstream.binance.com`)
+- Streams: `<symbol>@depth@100ms` + `<symbol>@aggTrade`
+- REST snapshot: `https://fapi.binance.com/fapi/v1/depth`
+- Default instrument for development: `BTCUSDT` (perpetual contract)
 - Single instrument per session for MVP
+- See ADR-001 in ARCHITECTURE.md Section 8 for migration rationale
 
 ### 2.4 Rendering target
 - JavaFX Canvas via `AnimationTimer` at 60 FPS
@@ -178,5 +180,5 @@ muralis/
 
 ---
 
-*Last updated: PROJECT.md v1.0 — Phase 1 scope locked.*
+*Last updated: PROJECT.md v1.2 — Data source changed from Binance Spot to USDⓈ-M Futures (ADR-001).*
 *Next file: DATA-CONTRACTS.md*

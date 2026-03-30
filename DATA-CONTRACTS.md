@@ -19,7 +19,7 @@ in the entire codebase. They are not suggestions.
 ### 1.1 Price
 - **Internal type:** `long` (fixed-point)
 - **Scale:** `10^priceScale` where `priceScale` is defined per instrument in Section 5
-- **Example:** BTC price `97432.51` with `priceScale=2` → stored as `9743251L`
+- **Example:** BTC Futures price `67083.40` with `priceScale=2` → stored as `6708340L`
 - **Conversion to display:** `price / Math.pow(10, priceScale)` — only at render time
 - **Forbidden types:** `double`, `float`, `BigDecimal` on any hot path
 - **BigDecimal permitted only at:** JSON parse boundary and display formatting
@@ -27,7 +27,7 @@ in the entire codebase. They are not suggestions.
 ### 1.2 Quantity
 - **Internal type:** `long` (fixed-point)
 - **Scale:** `10^qtyScale` where `qtyScale` is defined per instrument in Section 5
-- **Example:** BTC qty `0.00041800` with `qtyScale=8` → stored as `41800L`
+- **Example:** BTC Futures qty `0.041` with `qtyScale=3` → stored as `41L`
 - **Conversion to display:** `qty / Math.pow(10, qtyScale)` — only at render time
 - **Forbidden types:** `double`, `float`, `BigDecimal` on any hot path
 
@@ -115,8 +115,9 @@ diagnostics only and must never influence engine or rendering behaviour.
 ---
 
 ### 3.1 `OrderBookSnapshot`
-Delivered once per connection, after the REST snapshot is fetched and
-validated. Represents the complete state of the order book at a point in time.
+Delivered once per connection, after the `@depth20` WebSocket snapshot is
+received. Represents the initial state of the order book (top 20 levels
+per side). The full book builds out within seconds as diffs arrive.
 
 ```
 package com.muralis.model;
@@ -179,18 +180,23 @@ OrderBookDelta {
 ---
 
 ### 3.3 `NormalizedTrade`
-Delivered for every matched trade from the WebSocket trade stream.
+Delivered for every aggregate trade from the WebSocket `@aggTrade` stream.
+On Futures, individual fills at the same price and taker side within 100ms
+are aggregated into a single event. This produces fewer but larger trade
+events compared to Spot — desirable for visualization.
 
 ```
 package com.muralis.model;
 
 NormalizedTrade {
     String       symbol        // e.g. "BTCUSDT"
-    long         tradeId       // Exchange-assigned trade ID. Unique per session.
+    long         tradeId       // Aggregate trade ID (`a` field from Futures aggTrade).
+                               // Unique per session. Not the individual fill trade ID.
     long         price         // Fixed-point. Scale = instrument priceScale.
     long         qty           // Fixed-point. Scale = instrument qtyScale.
+                               // Aggregate quantity of all fills in this event.
     AggressorSide aggressorSide // Derived from isBuyerMaker at parse time
-    long         exchangeTs    // T field from Binance trade event (ms)
+    long         exchangeTs    // T field from Binance aggTrade event (ms)
     long         receivedTs    // System.currentTimeMillis() at receipt
 }
 ```
@@ -215,10 +221,10 @@ package com.muralis.model;
 
 InstrumentSpec {
     String symbol        // Canonical symbol, e.g. "BTCUSDT"
-    int    priceScale    // Decimal places in price. BTC=2, ES=2, NQ=2.
+    int    priceScale    // Decimal places in price. BTC Futures=2, ES=2, NQ=2.
     long   tickSize      // Minimum price increment in fixed-point.
                          // BTC: 1 (= 0.01), ES: 25 (= 0.25), NQ: 25 (= 0.25)
-    int    qtyScale      // Decimal places in quantity. Crypto=8, Futures=0.
+    int    qtyScale      // Decimal places in quantity. Crypto Futures=3, CME Futures=0.
     long   minQty        // Minimum order quantity in fixed-point.
     String currency      // Settlement currency. e.g. "USDT", "USD"
     ProviderType provider // Which provider supplies this instrument
@@ -254,21 +260,15 @@ ConnectionEvent {
 
 ---
 
-## 4. Enums (provider — remaining in `com.muralis.provider`)
-
-> **Note:** `ConnectionState` and `ConnectionEvent` were moved to
-> `com.muralis.model` so that the `MarketEvent` sealed interface can
-> include `ConnectionEvent` in its `permits` clause without creating a
-> circular dependency. `ProviderType` remains in `provider/` because it
-> is not a queue event type.
+## 4. Enums (provider)
 
 ### 4.1 `ProviderType`
 ```
 package com.muralis.provider;
 
 public enum ProviderType {
-    BINANCE_SPOT,       // Binance Spot WebSocket (Phase 1)
-    BINANCE_FUTURES,    // Binance USD-M Futures WebSocket (future)
+    BINANCE_SPOT,       // Binance Spot WebSocket (geo-blocked in US — see ADR-001)
+    BINANCE_FUTURES,    // Binance USDⓈ-M Futures WebSocket (Phase 1)
     CME_RITHMIC,        // CME via Rithmic R|Protocol (future)
     CME_CQG,            // CME via CQG WebAPI (future)
     COINBASE_ADVANCED   // Coinbase Advanced Trade WebSocket (future)
@@ -282,28 +282,50 @@ public enum ProviderType {
 All prices and quantities in this section are expressed in **fixed-point**
 using the instrument's own `priceScale` and `qtyScale`.
 
-### 5.1 Binance Spot — active in Phase 1
+### 5.1 Binance USDⓈ-M Futures — active in Phase 1
+
+> **ADR-001:** Switched from Binance Spot to Futures due to US
+> geo-blocking. See ARCHITECTURE.md Section 8.
 
 | Field | BTCUSDT | ETHUSDT |
 |---|---|---|
 | `symbol` | `"BTCUSDT"` | `"ETHUSDT"` |
 | `priceScale` | `2` | `2` |
 | `tickSize` | `1L` (= 0.01) | `1L` (= 0.01) |
-| `qtyScale` | `8` | `8` |
-| `minQty` | `100L` (= 0.000001 BTC) | `100L` (= 0.000001 ETH) |
+| `qtyScale` | `3` | `3` |
+| `minQty` | `1L` (= 0.001 BTC) | `1L` (= 0.001 ETH) |
 | `currency` | `"USDT"` | `"USDT"` |
+| `provider` | `BINANCE_FUTURES` | `BINANCE_FUTURES` |
+
+**WARNING: Binance periodically adjusts tick sizes for Futures
+contracts.** The values above reflect BTCUSDT as of March 2026
+(tickSize = 0.10, changed from 0.01 in February 2022). Always
+verify against `GET /fapi/v1/exchangeInfo` before release.
+Phase 2 should fetch `InstrumentSpec` from this endpoint at startup.
+
+**Conversion examples for BTCUSDT Futures:**
+```
+Raw JSON price  "67083.40"  → parse to BigDecimal at boundary
+                            → multiply by 10^2 → 6708340L   (stored)
+                            → divide by 10^2 at render      → "67,083.40"
+
+Raw JSON qty    "0.041"     → parse to BigDecimal at boundary
+                            → multiply by 10^3 → 41L        (stored)
+                            → divide by 10^3 at render      → "0.041"
+```
+
+### 5.1.1 Binance Spot — geo-blocked in US (preserved for reference)
+
+> Binance Spot returns HTTP 451 for US IPs. These values are preserved
+> for non-US deployments or if geo-blocking is lifted.
+
+| Field | BTCUSDT (Spot) | ETHUSDT (Spot) |
+|---|---|---|
+| `priceScale` | `2` | `2` |
+| `tickSize` | `1L` (= 0.01) | `1L` (= 0.01) |
+| `qtyScale` | `8` | `8` |
+| `minQty` | `100L` (= 0.000001) | `100L` (= 0.000001) |
 | `provider` | `BINANCE_SPOT` | `BINANCE_SPOT` |
-
-**Conversion examples for BTCUSDT:**
-```
-Raw JSON price  "97432.51"  → parse to BigDecimal at boundary
-                            → multiply by 10^2 → 9743251L  (stored)
-                            → divide by 10^2 at render     → "97,432.51"
-
-Raw JSON qty    "0.00041800" → parse to BigDecimal at boundary
-                             → multiply by 10^8 → 41800L   (stored)
-                             → divide by 10^8 at render    → "0.00041800"
-```
 
 ### 5.2 CME Futures — placeholder, Phase 2+
 
@@ -348,12 +370,8 @@ Producer (ingestion thread):
     for that symbol
   - Publishes a ConnectionEvent(RECONNECTING) before discarding any
     buffered events on reconnect
-  - Phase 1 uses LinkedTransferQueue which is unbounded — offer() never
-    blocks or rejects. The defensive logging for rejected events exists
-    in anticipation of Phase 2's bounded queue replacement (Disruptor).
-    If the queue is ever replaced with a bounded queue, the producer
-    must not block for more than 5ms and must drop the event with a
-    warning log on rejection.
+  - Must not block for more than 5ms attempting to publish; if the queue
+    is full, logs a warning and drops the event
 
 Consumer (engine thread):
   - Processes events strictly in publish order
@@ -392,7 +410,7 @@ only — the adapter — and must not leak raw strings into the engine or UI.
 
 **Canonical price parse pattern (used in BinanceAdapter only):**
 ```java
-// Raw JSON field: "97432.51", priceScale: 2
+// Raw JSON field: "67083.40", priceScale: 2
 long parsePrice(String raw, int priceScale) {
     return new BigDecimal(raw)
         .movePointRight(priceScale)
@@ -402,7 +420,7 @@ long parsePrice(String raw, int priceScale) {
 
 **Canonical quantity parse pattern (used in BinanceAdapter only):**
 ```java
-// Raw JSON field: "0.00041800", qtyScale: 8
+// Raw JSON field: "0.041", qtyScale: 3
 long parseQty(String raw, int qtyScale) {
     return new BigDecimal(raw)
         .movePointRight(qtyScale)
@@ -437,5 +455,5 @@ considering the implementation complete:
 
 ---
 
-*Last updated: DATA-CONTRACTS.md v1.1 — ConnectionState and ConnectionEvent moved to model/ package. Queue backpressure clarified for Phase 1.*
+*Last updated: DATA-CONTRACTS.md v1.3 — priceScale corrected to 2 (Binance reverted tick to 0.01). Snapshot description updated for WebSocket source. Parse examples reflect live values.*
 *Next file: ARCHITECTURE.md*

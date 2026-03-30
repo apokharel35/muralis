@@ -3,8 +3,6 @@ package com.muralis.ingestion;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.muralis.model.InstrumentSpec;
-import com.muralis.model.NormalizedTrade;
-import com.muralis.model.OrderBookDelta;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.slf4j.Logger;
@@ -44,12 +42,12 @@ class BinanceWebSocketClient extends WebSocketClient {
             String stream = envelope.get("stream").getAsString();
             JsonObject data = envelope.getAsJsonObject("data");
 
-            if (stream.endsWith("@depth@100ms")) {
-                OrderBookDelta delta = BinanceMessageParser.parseDelta(data, spec);
-                adapter.onDepthMessage(delta);
-            } else if (stream.endsWith("@trade")) {
-                NormalizedTrade trade = BinanceMessageParser.parseTrade(data, spec);
-                adapter.onTradeMessage(trade);
+            if (stream.contains("@depth20")) {
+                adapter.handleDepth20Message(data);
+            } else if (stream.endsWith("@depth@100ms")) {
+                adapter.handleDepthMessage(data);
+            } else if (stream.endsWith("@aggTrade")) {
+                adapter.handleAggTradeMessage(data);
             } else {
                 log.warn("[{}] Unknown stream type received: {}", spec.symbol(), stream);
             }

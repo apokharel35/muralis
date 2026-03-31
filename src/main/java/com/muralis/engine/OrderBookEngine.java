@@ -228,6 +228,9 @@ public class OrderBookEngine implements MarketDataListener {
             maxAbsDelta = Math.max(maxAbsDelta, Math.abs(delta));
         }
 
+        Map<Long, Long> priceVolumeMap = volumeAccumulator.getSnapshot();
+        long maxVolume = volumeAccumulator.getMaxVolume();
+
         // Crossed-book sanity check — log WARN, never throw (spec §3.3)
         long bestBid = orderBook.bestBid();
         long bestAsk = orderBook.bestAsk();
@@ -245,6 +248,8 @@ public class OrderBookEngine implements MarketDataListener {
                 activeBlips,
                 priceDeltaMap,
                 maxAbsDelta,
+                priceVolumeMap,
+                maxVolume,
                 connectionState,
                 instrumentSpec
         );

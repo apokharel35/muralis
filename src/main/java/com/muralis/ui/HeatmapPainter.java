@@ -16,7 +16,7 @@ class HeatmapPainter {
     private static final double MIN_CELL_WIDTH = 1.0;
 
     private final Canvas       canvas;
-    private final LadderView   view;
+    final LadderView            view;    // package-private — checked by HeatmapCanvas for rebuild
     ColorScheme                colorScheme;   // package-private — swapped on theme toggle
     private final RenderConfig renderConfig;
 

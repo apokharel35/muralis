@@ -12,7 +12,7 @@ import java.util.Arrays;
  *
  * writeIndex is monotonically increasing; modulo is applied only at access.
  */
-class HeatmapBuffer {
+public class HeatmapBuffer {
 
     private final HeatmapColumn[] columns;
     private volatile int writeIndex;
@@ -34,14 +34,14 @@ class HeatmapBuffer {
      * UI thread. Returns null if index is out of the live window:
      * index < 0, or index < (writeIndex - capacity) (already overwritten).
      */
-    HeatmapColumn getColumn(int index) {
+    public HeatmapColumn getColumn(int index) {
         if (index < 0 || index < writeIndex - capacity) return null;
         return columns[index % capacity];
     }
 
-    int getWriteIndex() { return writeIndex; }
+    public int getWriteIndex() { return writeIndex; }
 
-    int getCapacity() { return capacity; }
+    public int getCapacity() { return capacity; }
 
     /** Called on CONNECTING / RECONNECTING to discard stale history. */
     void clear() {

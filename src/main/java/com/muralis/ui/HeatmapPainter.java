@@ -186,18 +186,24 @@ class HeatmapPainter {
         if (ratio < 0.02) return null;
 
         Color base;
-        if (ratio <= 0.25) {
-            double t = ratio / 0.25;
-            base = interpolate(scheme.heatmapBackground, scheme.heatmapThin, t);
-        } else if (ratio <= 0.60) {
-            double t = (ratio - 0.25) / 0.35;
-            base = interpolate(scheme.heatmapThin, scheme.heatmapMid, t);
-        } else if (ratio <= 0.85) {
-            double t = (ratio - 0.60) / 0.25;
-            base = interpolate(scheme.heatmapMid, scheme.heatmapThick, t);
+        if (ratio <= 0.15) {
+            double t = ratio / 0.15;
+            base = interpolate(scheme.heatmapBlack, scheme.heatmapDarkBlue, t);
+        } else if (ratio <= 0.35) {
+            double t = (ratio - 0.15) / 0.20;
+            base = interpolate(scheme.heatmapDarkBlue, scheme.heatmapBlue, t);
+        } else if (ratio <= 0.55) {
+            double t = (ratio - 0.35) / 0.20;
+            base = interpolate(scheme.heatmapBlue, scheme.heatmapWhite, t);
+        } else if (ratio <= 0.75) {
+            double t = (ratio - 0.55) / 0.20;
+            base = interpolate(scheme.heatmapWhite, scheme.heatmapYellow, t);
+        } else if (ratio <= 0.90) {
+            double t = (ratio - 0.75) / 0.15;
+            base = interpolate(scheme.heatmapYellow, scheme.heatmapOrange, t);
         } else {
-            double t = (ratio - 0.85) / 0.15;
-            base = interpolate(scheme.heatmapThick, scheme.heatmapMax, t);
+            double t = (ratio - 0.90) / 0.10;
+            base = interpolate(scheme.heatmapOrange, scheme.heatmapRed, t);
         }
 
         // Apply intensity to brightness via deriveColor:

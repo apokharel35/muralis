@@ -10,7 +10,9 @@
       "Bash(bc)",
       "Bash(grep:*)",
       "Bash(.gradlew.bat compileJava)",
-      "Bash(.\\\\gradlew.bat test:*)"
+      "Bash(.\\\\gradlew.bat test:*)",
+      "Bash(cmd.exe /c \"gradlew.bat build\" 2>&1)",
+      "Bash(./gradlew build:*)"
     ]
   }
 }

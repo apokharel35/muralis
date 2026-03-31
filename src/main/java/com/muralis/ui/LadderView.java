@@ -15,7 +15,7 @@ class LadderView {
 
     LadderView(double canvasHeight) {
         this.canvasHeight      = canvasHeight;
-        this.rowHeightPx       = 20.0;
+        this.rowHeightPx       = 10.0;
         this.scrollOffsetTicks = 0.0;
         this.centrePrice       = 0L;
         this.tickSize          = 1L;

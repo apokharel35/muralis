@@ -7,6 +7,9 @@ import com.muralis.engine.RenderSnapshot;
 import com.muralis.engine.TradeBlip;
 import com.muralis.model.AggressorSide;
 import com.muralis.model.InstrumentSpec;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
@@ -14,6 +17,7 @@ import javafx.scene.paint.Color;
 class HeatmapPainter {
 
     private static final double MIN_CELL_WIDTH = 1.0;
+    private static final double RIGHT_MARGIN   = 12.0;
 
     private final Canvas       canvas;
     final LadderView            view;    // package-private — checked by HeatmapCanvas for rebuild
@@ -48,20 +52,26 @@ class HeatmapPainter {
         gc.setFill(colorScheme.heatmapBackground);
         gc.fillRect(0, 0, panelWidth, panelHeight);
 
-        // Pass 1 — determine visible time range
+        // Pass 1 — determine visible time range and build ordered column list
         int writeIndex = buffer.getWriteIndex();
         HeatmapColumn newest = buffer.getColumn(writeIndex - 1);
         if (newest == null) return;
         long newestTs     = newest.timestamp();
         long timeWindowMs = (long) renderConfig.heatmapTimeWindowSec() * 1000L;
 
-        // Pass 2 — find maxQty across all visible cells
-        long   maxQty = 0L;
-        double scanRowH = view.rowHeightPx();
+        List<HeatmapColumn> visibleList = new ArrayList<>();
         for (int i = writeIndex - 1; i >= 0; i--) {
-            HeatmapColumn col = buffer.getColumn(i);
-            if (col == null) break;
-            if (col.timestamp() < newestTs - timeWindowMs) break;
+            HeatmapColumn c = buffer.getColumn(i);
+            if (c == null) break;
+            if (c.timestamp() < newestTs - timeWindowMs) break;
+            visibleList.add(c);
+        }
+        Collections.reverse(visibleList); // oldest first
+
+        // Pass 2 — find maxQty across visible cells in visible Y range
+        long   maxQty  = 0L;
+        double scanRowH = view.rowHeightPx();
+        for (HeatmapColumn col : visibleList) {
             long[] scanPrices = col.prices();
             long[] scanQtys   = col.quantities();
             for (int j = 0; j < scanPrices.length; j++) {
@@ -72,28 +82,21 @@ class HeatmapPainter {
         }
         if (maxQty == 0L) return;
 
-        // Pass 3 — paint liquidity cells
-        for (int i = writeIndex - 1; i >= 0; i--) {
-            HeatmapColumn col = buffer.getColumn(i);
-            if (col == null) break;
-            if (col.timestamp() < newestTs - timeWindowMs) break;
+        // Uniform column width — fills panel left-to-right as data accumulates
+        int    n        = visibleList.size();
+        double colWidth = n > 0 ? Math.max((panelWidth - RIGHT_MARGIN) / n, MIN_CELL_WIDTH)
+                                : MIN_CELL_WIDTH;
+        double rightEdge = panelWidth - RIGHT_MARGIN;
 
-            double x = timeToX(col.timestamp(), newestTs, timeWindowMs, panelWidth);
-            if (x < 0) continue;
+        // Pass 3 — paint liquidity cells (index-based X, newest at right edge)
+        double rowH = view.rowHeightPx();
+        for (int idx = 0; idx < n; idx++) {
+            HeatmapColumn col = visibleList.get(idx);
+            double x = rightEdge - (n - idx) * colWidth;
+            if (x + colWidth < 0) continue;
 
-            long nextColTs;
-            if (i == writeIndex - 1) {
-                nextColTs = newestTs + 100L;
-            } else {
-                HeatmapColumn nextCol = buffer.getColumn(i + 1);
-                nextColTs = (nextCol != null) ? nextCol.timestamp() : newestTs + 100L;
-            }
-            double xNext   = timeToX(nextColTs, newestTs, timeWindowMs, panelWidth);
-            double colWidth = Math.max(xNext - x, MIN_CELL_WIDTH);
-
-            long[]  prices     = col.prices();
-            long[]  quantities = col.quantities();
-            double  rowH       = view.rowHeightPx();
+            long[] prices     = col.prices();
+            long[] quantities = col.quantities();
 
             for (int j = 0; j < prices.length; j++) {
                 long qty = quantities[j];
@@ -110,15 +113,12 @@ class HeatmapPainter {
             }
         }
 
-        // Pass 4 — volume dots
+        // Pass 4 — volume dots (same index-based X)
         InstrumentSpec spec = snap.instrumentSpec();
-        for (int i = writeIndex - 1; i >= 0; i--) {
-            HeatmapColumn col = buffer.getColumn(i);
-            if (col == null) break;
-            if (col.timestamp() < newestTs - timeWindowMs) break;
-
-            double x = timeToX(col.timestamp(), newestTs, timeWindowMs, panelWidth);
-            if (x < 0) continue;
+        for (int idx = 0; idx < n; idx++) {
+            HeatmapColumn col = visibleList.get(idx);
+            double x = rightEdge - (n - idx) * colWidth;
+            if (x + colWidth < 0) continue;
 
             for (TradeBlip trade : col.trades()) {
                 double y = view.priceToY(trade.price(), view.centrePrice());
@@ -134,21 +134,16 @@ class HeatmapPainter {
             }
         }
 
-        // Pass 5 — BBO bid line
-        int visibleColumnCount = (int)(timeWindowMs / 100L) + 2;
-        int firstVisible       = Math.max(0, writeIndex - visibleColumnCount);
+        // Pass 5 — BBO bid line (oldest to newest, same X formula)
         if (renderConfig.bboLineEnabled()) {
             gc.setStroke(colorScheme.bboBid);
             gc.setLineWidth(1.0);
             gc.beginPath();
             boolean bidStarted = false;
-            for (int i = firstVisible; i < writeIndex; i++) {
-                HeatmapColumn col = buffer.getColumn(i);
-                if (col == null) continue;
-                if (col.timestamp() < newestTs - timeWindowMs) continue;
+            for (int idx = 0; idx < n; idx++) {
+                HeatmapColumn col = visibleList.get(idx);
                 if (col.bestBid() <= 0L) continue;
-
-                double x = timeToX(col.timestamp(), newestTs, timeWindowMs, panelWidth);
+                double x = rightEdge - (n - idx) * colWidth;
                 double y = view.priceToY(col.bestBid(), view.centrePrice());
                 if (!bidStarted) { gc.moveTo(x, y); bidStarted = true; }
                 else             { gc.lineTo(x, y); }
@@ -159,19 +154,21 @@ class HeatmapPainter {
             gc.setStroke(colorScheme.bboAsk);
             gc.beginPath();
             boolean askStarted = false;
-            for (int i = firstVisible; i < writeIndex; i++) {
-                HeatmapColumn col = buffer.getColumn(i);
-                if (col == null) continue;
-                if (col.timestamp() < newestTs - timeWindowMs) continue;
+            for (int idx = 0; idx < n; idx++) {
+                HeatmapColumn col = visibleList.get(idx);
                 if (col.bestAsk() <= 0L) continue;
-
-                double x = timeToX(col.timestamp(), newestTs, timeWindowMs, panelWidth);
+                double x = rightEdge - (n - idx) * colWidth;
                 double y = view.priceToY(col.bestAsk(), view.centrePrice());
                 if (!askStarted) { gc.moveTo(x, y); askStarted = true; }
                 else             { gc.lineTo(x, y); }
             }
             if (askStarted) gc.stroke();
         }
+
+        // Divider line — right edge of heatmap area
+        gc.setStroke(colorScheme.heatmapBackground.brighter());
+        gc.setLineWidth(1.0);
+        gc.strokeLine(rightEdge, 0, rightEdge, panelHeight);
     }
 
     private double bubbleDiameter(long qty, InstrumentSpec spec) {
@@ -181,14 +178,6 @@ class HeatmapPainter {
         double MAX_DIAMETER = Math.min(view.rowHeightPx() * 2.0, 40.0);
         double normalised = logQty / Math.log10(11.0);
         return MIN_DIAMETER + normalised * (MAX_DIAMETER - MIN_DIAMETER);
-    }
-
-    private double timeToX(long timestamp, long newestTs,
-                           long timeWindowMs, double panelWidth) {
-        long age = newestTs - timestamp;
-        if (age < 0 || age > timeWindowMs) return -1.0;
-        double ratio = 1.0 - ((double) age / timeWindowMs);
-        return ratio * panelWidth;
     }
 
     private Color heatmapColor(long qty, long maxQty,

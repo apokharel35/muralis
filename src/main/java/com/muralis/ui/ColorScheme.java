@@ -30,7 +30,9 @@ public enum ColorScheme {
         Color.web("#1e1e24"),   // gridLine
         Color.web("#2a2a35"),   // panelDivider
         Color.web("#1db954"),   // deltaBuyTint
-        Color.web("#e63946")    // deltaSellTint
+        Color.web("#e63946"),   // deltaSellTint
+        Color.web("#2a9d8f"),   // volumeBar
+        Color.web("#8ecfc5")    // volumeBarText
     ),
 
     LIGHT(
@@ -59,7 +61,9 @@ public enum ColorScheme {
         Color.web("#dcdce0"),   // gridLine
         Color.web("#c0c0cc"),   // panelDivider
         Color.web("#1db954"),   // deltaBuyTint
-        Color.web("#e63946")    // deltaSellTint
+        Color.web("#e63946"),   // deltaSellTint
+        Color.web("#2a9d8f"),   // volumeBar
+        Color.web("#1a6e64")    // volumeBarText
     );
 
     public final Color background;
@@ -88,6 +92,8 @@ public enum ColorScheme {
     public final Color panelDivider;
     public final Color deltaBuyTint;
     public final Color deltaSellTint;
+    public final Color volumeBar;
+    public final Color volumeBarText;
 
     ColorScheme(
         Color background,
@@ -115,7 +121,9 @@ public enum ColorScheme {
         Color gridLine,
         Color panelDivider,
         Color deltaBuyTint,
-        Color deltaSellTint
+        Color deltaSellTint,
+        Color volumeBar,
+        Color volumeBarText
     ) {
         this.background = background;
         this.panelBackground = panelBackground;
@@ -143,5 +151,7 @@ public enum ColorScheme {
         this.panelDivider = panelDivider;
         this.deltaBuyTint = deltaBuyTint;
         this.deltaSellTint = deltaSellTint;
+        this.volumeBar = volumeBar;
+        this.volumeBarText = volumeBarText;
     }
 }

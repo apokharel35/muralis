@@ -29,4 +29,21 @@ public class RenderConfig {
 
     public boolean volumeProfileEnabled()                      { return volumeProfileEnabled; }
     public void setVolumeProfileEnabled(boolean enabled)       { this.volumeProfileEnabled = enabled; }
+
+    private volatile boolean heatmapEnabled       = true;
+    private volatile int     heatmapTimeWindowSec = 60;
+    private volatile double  heatmapIntensity     = 1.0;
+    private volatile boolean bboLineEnabled       = true;
+
+    public boolean heatmapEnabled()                          { return heatmapEnabled; }
+    public void setHeatmapEnabled(boolean enabled)           { this.heatmapEnabled = enabled; }
+
+    public int  heatmapTimeWindowSec()                       { return heatmapTimeWindowSec; }
+    public void setHeatmapTimeWindowSec(int seconds)         { this.heatmapTimeWindowSec = seconds; }
+
+    public double heatmapIntensity()                         { return heatmapIntensity; }
+    public void setHeatmapIntensity(double intensity)        { this.heatmapIntensity = intensity; }
+
+    public boolean bboLineEnabled()                          { return bboLineEnabled; }
+    public void setBboLineEnabled(boolean enabled)           { this.bboLineEnabled = enabled; }
 }

@@ -32,7 +32,14 @@ public enum ColorScheme {
         Color.web("#1db954"),   // deltaBuyTint
         Color.web("#e63946"),   // deltaSellTint
         Color.web("#2a9d8f"),   // volumeBar
-        Color.web("#8ecfc5")    // volumeBarText
+        Color.web("#8ecfc5"),   // volumeBarText
+        Color.web("#080810"),   // heatmapBackground
+        Color.web("#0a1628"),   // heatmapThin
+        Color.web("#1a3a6b"),   // heatmapMid
+        Color.web("#f4a261"),   // heatmapThick
+        Color.web("#e63946"),   // heatmapMax
+        Color.web("#e63946"),   // bboAsk
+        Color.web("#2a9d8f")    // bboBid
     ),
 
     LIGHT(
@@ -63,7 +70,14 @@ public enum ColorScheme {
         Color.web("#1db954"),   // deltaBuyTint
         Color.web("#e63946"),   // deltaSellTint
         Color.web("#2a9d8f"),   // volumeBar
-        Color.web("#1a6e64")    // volumeBarText
+        Color.web("#1a6e64"),   // volumeBarText
+        Color.web("#f0f0f5"),   // heatmapBackground
+        Color.web("#dde8f5"),   // heatmapThin
+        Color.web("#7bafd4"),   // heatmapMid
+        Color.web("#e07820"),   // heatmapThick
+        Color.web("#c0392b"),   // heatmapMax
+        Color.web("#c0392b"),   // bboAsk
+        Color.web("#1a6e64")    // bboBid
     );
 
     public final Color background;
@@ -94,6 +108,13 @@ public enum ColorScheme {
     public final Color deltaSellTint;
     public final Color volumeBar;
     public final Color volumeBarText;
+    public final Color heatmapBackground;
+    public final Color heatmapThin;
+    public final Color heatmapMid;
+    public final Color heatmapThick;
+    public final Color heatmapMax;
+    public final Color bboAsk;
+    public final Color bboBid;
 
     ColorScheme(
         Color background,
@@ -123,7 +144,14 @@ public enum ColorScheme {
         Color deltaBuyTint,
         Color deltaSellTint,
         Color volumeBar,
-        Color volumeBarText
+        Color volumeBarText,
+        Color heatmapBackground,
+        Color heatmapThin,
+        Color heatmapMid,
+        Color heatmapThick,
+        Color heatmapMax,
+        Color bboAsk,
+        Color bboBid
     ) {
         this.background = background;
         this.panelBackground = panelBackground;
@@ -153,5 +181,12 @@ public enum ColorScheme {
         this.deltaSellTint = deltaSellTint;
         this.volumeBar = volumeBar;
         this.volumeBarText = volumeBarText;
+        this.heatmapBackground = heatmapBackground;
+        this.heatmapThin = heatmapThin;
+        this.heatmapMid = heatmapMid;
+        this.heatmapThick = heatmapThick;
+        this.heatmapMax = heatmapMax;
+        this.bboAsk = bboAsk;
+        this.bboBid = bboBid;
     }
 }

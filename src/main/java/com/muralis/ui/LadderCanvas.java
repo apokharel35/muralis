@@ -28,9 +28,10 @@ public class LadderCanvas extends Region {
     private final Canvas bubbleCanvas = new Canvas();
 
     // ── Painters (non-final: replaced when canvas height changes on resize)
-    private LadderView    view;
-    private LadderPainter ladderPainter;
-    private BubblePainter bubblePainter;
+    private LadderView           view;
+    private LadderPainter        ladderPainter;
+    private BubblePainter        bubblePainter;
+    private VolumeProfilePainter volumeProfilePainter;
 
     // ── View state (UI thread only) ───────────────────────────────────────
     private boolean userScrolled = false;
@@ -81,10 +82,10 @@ public class LadderCanvas extends Region {
                 ladderPainter.paint(snap);
                 gc.restore();
 
-                // Step 4 — paint bubbles
+                // Step 4 — paint volume profile (replaced BubblePainter in Phase 3)
                 GraphicsContext gcb = bubbleCanvas.getGraphicsContext2D();
                 gcb.save();
-                bubblePainter.paint(snap);
+                volumeProfilePainter.paint(snap);
                 gcb.restore();
             }
         }.start();
@@ -142,9 +143,10 @@ public class LadderCanvas extends Region {
 
     /** Swap theme; next AnimationTimer frame picks up the new colors. */
     public void setColorScheme(ColorScheme scheme) {
-        colorScheme               = scheme;
-        ladderPainter.colorScheme = scheme;
-        bubblePainter.colorScheme = scheme;
+        colorScheme                      = scheme;
+        ladderPainter.colorScheme        = scheme;
+        bubblePainter.colorScheme        = scheme;
+        volumeProfilePainter.colorScheme = scheme;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────
@@ -163,8 +165,9 @@ public class LadderCanvas extends Region {
         view.centreOn(savedCentre);
         if (userScrolled) view.adjustScroll(savedScroll);  // restore from initial 0
 
-        ladderPainter = new LadderPainter(ladderCanvas, view, colorScheme, renderConfig);
-        bubblePainter = new BubblePainter(bubbleCanvas, view, colorScheme);
+        ladderPainter        = new LadderPainter(ladderCanvas, view, colorScheme, renderConfig);
+        bubblePainter        = new BubblePainter(bubbleCanvas, view, colorScheme);
+        volumeProfilePainter = new VolumeProfilePainter(bubbleCanvas, view, colorScheme, renderConfig);
     }
 
     /** Rendered when snapshotRef.get() == null (engine not yet ready). */

@@ -51,7 +51,8 @@ public class Application {
         MuralisApp.snapshotRef       = snapshotRef;
         MuralisApp.renderConfig      = renderConfig;
         MuralisApp.shutdownCallback  = provider::disconnect;
-        MuralisApp.deltaResetCallback = () -> engine.requestDeltaReset();
+        MuralisApp.deltaResetCallback  = () -> engine.requestDeltaReset();
+        MuralisApp.volumeResetCallback = () -> engine.requestVolumeReset();
 
         provider.connect(ProviderConfig.defaultFor("BTCUSDT"));
 

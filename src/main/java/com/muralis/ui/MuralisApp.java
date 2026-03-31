@@ -38,6 +38,7 @@ public class MuralisApp extends Application {
     public static InstrumentSpec                  instrumentSpec;
     public static Runnable                        shutdownCallback;
     public static Runnable                        deltaResetCallback;
+    public static Runnable                        volumeResetCallback;
 
     @Override
     public void start(Stage stage) {
@@ -91,21 +92,6 @@ public class MuralisApp extends Application {
 
         // ── Control bar (BOTTOM, 36px) ─────────────────────────────────────
         // Section 8
-        Label decayLabel = new Label("Decay: 5s");
-        decayLabel.setTextFill(ColorScheme.DARK.priceText);
-
-        Slider decaySlider = new Slider(1.0, 30.0, 5.0);
-        decaySlider.setMajorTickUnit(5.0);
-        decaySlider.setMinorTickCount(4);
-        decaySlider.setSnapToTicks(true);
-        decaySlider.setShowTickMarks(false);
-        decaySlider.setPrefWidth(220.0);
-        decaySlider.valueProperty().addListener((obs, oldVal, newVal) -> {
-            long decayMs = newVal.longValue() * 1_000L;
-            renderConfig.setBubbleDecayMs(decayMs);
-            ladderCanvas.setDecayMs(decayMs);
-            decayLabel.setText("Decay: " + newVal.intValue() + "s");
-        });
 
         // ── Delta tint controls ────────────────────────────────────────
         Label deltaTintLabel = new Label("50%");
@@ -133,17 +119,31 @@ public class MuralisApp extends Application {
             if (deltaResetCallback != null) deltaResetCallback.run();
         });
 
+        // ── Volume profile controls ────────────────────────────────────
+        CheckBox volumeToggle = new CheckBox("Vol");
+        volumeToggle.setSelected(true);
+        volumeToggle.setTextFill(ColorScheme.DARK.priceText);
+        volumeToggle.selectedProperty().addListener((obs, oldVal, newVal) ->
+            renderConfig.setVolumeProfileEnabled(newVal)
+        );
+
+        Button resetVolume = new Button("Reset Vol");
+        resetVolume.setOnAction(e -> {
+            if (volumeResetCallback != null) volumeResetCallback.run();
+        });
+
+        Button zoomOut = new Button("\u2212");   // Unicode minus sign
+        Button zoomIn  = new Button("+");
+        zoomOut.setOnAction(e -> ladderCanvas.adjustZoom(-2.0));
+        zoomIn.setOnAction(e  -> ladderCanvas.adjustZoom(+2.0));
+
         Button centreButton = new Button("Centre");
         centreButton.setOnAction(e -> ladderCanvas.resetScroll());
 
-        Button zoomIn  = new Button("+");
-        Button zoomOut = new Button("\u2212");   // Unicode minus sign
-        zoomIn.setOnAction(e  -> ladderCanvas.adjustZoom(+2.0));
-        zoomOut.setOnAction(e -> ladderCanvas.adjustZoom(-2.0));
-
-        HBox controlBar = new HBox(8, decayLabel, decaySlider,
+        HBox controlBar = new HBox(8,
                 deltaTintToggle, deltaTintSlider, deltaTintLabel, resetDelta,
-                centreButton, zoomIn, zoomOut);
+                volumeToggle, resetVolume,
+                zoomOut, zoomIn, centreButton);
         controlBar.setAlignment(Pos.CENTER_LEFT);
         controlBar.setPrefHeight(36.0);
         controlBar.setPadding(new Insets(4, 6, 4, 6));

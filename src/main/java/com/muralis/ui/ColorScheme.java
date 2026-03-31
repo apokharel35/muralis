@@ -34,10 +34,13 @@ public enum ColorScheme {
         Color.web("#2a9d8f"),   // volumeBar
         Color.web("#8ecfc5"),   // volumeBarText
         Color.web("#080810"),   // heatmapBackground
-        Color.web("#0a1628"),   // heatmapThin
-        Color.web("#1a3a6b"),   // heatmapMid
-        Color.web("#f4a261"),   // heatmapThick
-        Color.web("#e63946"),   // heatmapMax
+        Color.web("#000000"),   // heatmapBlack
+        Color.web("#0a1628"),   // heatmapDarkBlue
+        Color.web("#1a5276"),   // heatmapBlue
+        Color.web("#d5d8dc"),   // heatmapWhite
+        Color.web("#f4d03f"),   // heatmapYellow
+        Color.web("#f4a261"),   // heatmapOrange
+        Color.web("#e63946"),   // heatmapRed
         Color.web("#e63946"),   // bboAsk
         Color.web("#2a9d8f")    // bboBid
     ),
@@ -72,10 +75,13 @@ public enum ColorScheme {
         Color.web("#2a9d8f"),   // volumeBar
         Color.web("#1a6e64"),   // volumeBarText
         Color.web("#f0f0f5"),   // heatmapBackground
-        Color.web("#dde8f5"),   // heatmapThin
-        Color.web("#7bafd4"),   // heatmapMid
-        Color.web("#e07820"),   // heatmapThick
-        Color.web("#c0392b"),   // heatmapMax
+        Color.web("#f0f0f5"),   // heatmapBlack
+        Color.web("#d6e4f0"),   // heatmapDarkBlue
+        Color.web("#7bafd4"),   // heatmapBlue
+        Color.web("#ffffff"),   // heatmapWhite
+        Color.web("#d4ac0d"),   // heatmapYellow
+        Color.web("#e07820"),   // heatmapOrange
+        Color.web("#c0392b"),   // heatmapRed
         Color.web("#c0392b"),   // bboAsk
         Color.web("#1a6e64")    // bboBid
     );
@@ -109,10 +115,13 @@ public enum ColorScheme {
     public final Color volumeBar;
     public final Color volumeBarText;
     public final Color heatmapBackground;
-    public final Color heatmapThin;
-    public final Color heatmapMid;
-    public final Color heatmapThick;
-    public final Color heatmapMax;
+    public final Color heatmapBlack;
+    public final Color heatmapDarkBlue;
+    public final Color heatmapBlue;
+    public final Color heatmapWhite;
+    public final Color heatmapYellow;
+    public final Color heatmapOrange;
+    public final Color heatmapRed;
     public final Color bboAsk;
     public final Color bboBid;
 
@@ -146,10 +155,13 @@ public enum ColorScheme {
         Color volumeBar,
         Color volumeBarText,
         Color heatmapBackground,
-        Color heatmapThin,
-        Color heatmapMid,
-        Color heatmapThick,
-        Color heatmapMax,
+        Color heatmapBlack,
+        Color heatmapDarkBlue,
+        Color heatmapBlue,
+        Color heatmapWhite,
+        Color heatmapYellow,
+        Color heatmapOrange,
+        Color heatmapRed,
         Color bboAsk,
         Color bboBid
     ) {
@@ -182,10 +194,13 @@ public enum ColorScheme {
         this.volumeBar = volumeBar;
         this.volumeBarText = volumeBarText;
         this.heatmapBackground = heatmapBackground;
-        this.heatmapThin = heatmapThin;
-        this.heatmapMid = heatmapMid;
-        this.heatmapThick = heatmapThick;
-        this.heatmapMax = heatmapMax;
+        this.heatmapBlack = heatmapBlack;
+        this.heatmapDarkBlue = heatmapDarkBlue;
+        this.heatmapBlue = heatmapBlue;
+        this.heatmapWhite = heatmapWhite;
+        this.heatmapYellow = heatmapYellow;
+        this.heatmapOrange = heatmapOrange;
+        this.heatmapRed = heatmapRed;
         this.bboAsk = bboAsk;
         this.bboBid = bboBid;
     }

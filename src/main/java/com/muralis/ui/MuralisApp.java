@@ -42,7 +42,10 @@ public class MuralisApp extends Application {
 
     @Override
     public void start(Stage stage) {
-        LadderCanvas ladderCanvas = new LadderCanvas(snapshotRef, renderConfig);
+        HeatmapCanvas heatmapCanvas = new HeatmapCanvas(snapshotRef, renderConfig);
+        heatmapCanvas.setPrefWidth(600);
+
+        LadderCanvas ladderCanvas = new LadderCanvas(snapshotRef, renderConfig, heatmapCanvas);
 
         // ── Status bar (TOP, 28px) ─────────────────────────────────────────
         // Section 7: 8px Circle dot (radius = 4), symbol label, theme toggle
@@ -152,6 +155,7 @@ public class MuralisApp extends Application {
         // ── Root BorderPane ────────────────────────────────────────────────
         BorderPane root = new BorderPane();
         root.setTop(statusBar);
+        root.setLeft(heatmapCanvas);
         root.setCenter(ladderCanvas);
         root.setBottom(controlBar);
 
@@ -192,11 +196,11 @@ public class MuralisApp extends Application {
         }.start();
 
         // ── Scene and stage ────────────────────────────────────────────────
-        Scene scene = new Scene(root, 1100, 800);
+        Scene scene = new Scene(root, 1580, 800);
         scene.setFill(Color.web("#0d0d0f"));
 
         stage.setTitle("Muralis \u2014 BTCUSDT");
-        stage.setMinWidth(900);
+        stage.setMinWidth(1500);
         stage.setMinHeight(600);
         stage.setScene(scene);
         stage.setOnCloseRequest(e -> {

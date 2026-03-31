@@ -22,6 +22,7 @@ public class LadderCanvas extends Region {
     private final AtomicReference<RenderSnapshot> snapshotRef;
     @SuppressWarnings("unused")   // held for MuralisApp wiring; decay read via setDecayMs()
     private final RenderConfig                    renderConfig;
+    private final HeatmapCanvas                   heatmapCanvas;
 
     // ── Canvas nodes ──────────────────────────────────────────────────────
     private final Canvas ladderCanvas = new Canvas();
@@ -42,9 +43,11 @@ public class LadderCanvas extends Region {
 
     // ─────────────────────────────────────────────────────────────────────
     public LadderCanvas(AtomicReference<RenderSnapshot> snapshotRef,
-                        RenderConfig renderConfig) {
-        this.snapshotRef  = snapshotRef;
-        this.renderConfig = renderConfig;
+                        RenderConfig renderConfig,
+                        HeatmapCanvas heatmapCanvas) {
+        this.snapshotRef   = snapshotRef;
+        this.renderConfig  = renderConfig;
+        this.heatmapCanvas = heatmapCanvas;
 
         getChildren().addAll(ladderCanvas, bubbleCanvas);
         setFocusTraversable(true);
@@ -76,7 +79,10 @@ public class LadderCanvas extends Region {
                     view.centreOn(midPrice);
                 }
 
-                // Step 3 — paint ladder; gc.save/restore prevents state leakage (Section 4.1)
+                // Step 3a — paint heatmap (shares LadderView for vertical alignment)
+                heatmapCanvas.paint(snap, view);
+
+                // Step 3b — paint ladder; gc.save/restore prevents state leakage (Section 4.1)
                 GraphicsContext gc = ladderCanvas.getGraphicsContext2D();
                 gc.save();
                 ladderPainter.paint(snap);
@@ -147,6 +153,7 @@ public class LadderCanvas extends Region {
         ladderPainter.colorScheme        = scheme;
         bubblePainter.colorScheme        = scheme;
         volumeProfilePainter.colorScheme = scheme;
+        heatmapCanvas.setColorScheme(scheme);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────

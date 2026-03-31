@@ -22,6 +22,8 @@ public record RenderSnapshot(
         List<TradeBlip>  recentTrades,
         Map<Long, Long>  priceDeltaMap,
         long             maxAbsDelta,
+        Map<Long, Long>  priceVolumeMap,
+        long             maxVolume,
         ConnectionState  connectionState,
         InstrumentSpec   instrumentSpec
 ) {
@@ -36,5 +38,6 @@ public record RenderSnapshot(
         askQtys      = Arrays.copyOf(askQtys,      askQtys.length);
         recentTrades = List.copyOf(recentTrades);
         priceDeltaMap = Map.copyOf(priceDeltaMap);
+        priceVolumeMap = Map.copyOf(priceVolumeMap);
     }
 }

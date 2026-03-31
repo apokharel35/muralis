@@ -9,6 +9,8 @@ import com.muralis.model.OrderBookDelta;
 import com.muralis.model.OrderBookSnapshot;
 import com.muralis.provider.MarketDataListener;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +46,12 @@ public class OrderBookEngine implements MarketDataListener {
     private final DeltaAccumulator  deltaAccumulator  = new DeltaAccumulator();
     private final VolumeAccumulator volumeAccumulator = new VolumeAccumulator();
 
+    private final HeatmapBuffer       heatmapBuffer;
+    private long                       lastHeatmapColumnTs  = 0L;
+    private final List<TradeBlip>      pendingHeatmapTrades = new ArrayList<>();
+
+    private static final long HEATMAP_INTERVAL_MS = 100L;
+
     private volatile boolean running              = false;
     private volatile boolean deltaResetRequested  = false;
     private volatile boolean volumeResetRequested = false;
@@ -61,6 +69,8 @@ public class OrderBookEngine implements MarketDataListener {
         this.snapshotRef    = snapshotRef;
         this.instrumentSpec = instrumentSpec;
         this.renderConfig   = renderConfig;
+        int capacity = (int)(60 * 10) + 20;  // default 60s × 10 cols/sec + safety; configurable in P4.3
+        this.heatmapBuffer  = new HeatmapBuffer(capacity);
     }
 
     // ── Lifecycle ──────────────────────────────────────────────────────
@@ -119,6 +129,13 @@ public class OrderBookEngine implements MarketDataListener {
                 volumeAccumulator.clear();
                 volumeResetRequested = false;
             }
+
+            long now = System.currentTimeMillis();
+            if (now - lastHeatmapColumnTs >= HEATMAP_INTERVAL_MS) {
+                heatmapBuffer.writeColumn(buildHeatmapColumn(now));
+                lastHeatmapColumnTs = now;
+            }
+
             snapshotRef.set(buildSnapshot());
         }
     }
@@ -174,6 +191,7 @@ public class OrderBookEngine implements MarketDataListener {
         tradeBuffer.add(blip);
         deltaAccumulator.accumulate(t.price(), t.qty(), t.aggressorSide());
         volumeAccumulator.accumulate(t.price(), t.qty());
+        pendingHeatmapTrades.add(blip);
     }
 
     private void applyConnectionEvent(ConnectionEvent c) {
@@ -184,6 +202,9 @@ public class OrderBookEngine implements MarketDataListener {
                 tradeBuffer.clear();
                 deltaAccumulator.clear();
                 volumeAccumulator.clear();
+                heatmapBuffer.clear();
+                pendingHeatmapTrades.clear();
+                lastHeatmapColumnTs = 0L;
                 LOG.log(System.Logger.Level.INFO,
                         "[{0}] Connecting...", instrumentSpec.symbol());
             }
@@ -198,6 +219,9 @@ public class OrderBookEngine implements MarketDataListener {
                 tradeBuffer.clear();
                 deltaAccumulator.clear();
                 volumeAccumulator.clear();
+                heatmapBuffer.clear();
+                pendingHeatmapTrades.clear();
+                lastHeatmapColumnTs = 0L;
                 LOG.log(System.Logger.Level.WARNING,
                         "[{0}] Reconnecting. Reason: {1}",
                         instrumentSpec.symbol(), c.reason());
@@ -250,9 +274,45 @@ public class OrderBookEngine implements MarketDataListener {
                 maxAbsDelta,
                 priceVolumeMap,
                 maxVolume,
+                heatmapBuffer,
                 connectionState,
                 instrumentSpec
         );
+    }
+
+    private HeatmapColumn buildHeatmapColumn(long timestamp) {
+        Set<Map.Entry<Long, Long>> bids = orderBook.getBidsDescending();
+        Set<Map.Entry<Long, Long>> asks = orderBook.getAsksAscending();
+
+        int totalLevels = bids.size() + asks.size();
+        long[] prices     = new long[totalLevels];
+        long[] quantities = new long[totalLevels];
+
+        List<Map.Entry<Long, Long>> bidList = new ArrayList<>(bids);
+        Collections.reverse(bidList);
+        int i = 0;
+        for (Map.Entry<Long, Long> entry : bidList) {
+            prices[i]     = entry.getKey();
+            quantities[i] = entry.getValue();
+            i++;
+        }
+        for (Map.Entry<Long, Long> entry : asks) {
+            prices[i]     = entry.getKey();
+            quantities[i] = entry.getValue();
+            i++;
+        }
+
+        TradeBlip[] trades = pendingHeatmapTrades.toArray(TradeBlip[]::new);
+        pendingHeatmapTrades.clear();
+
+        long bestBid = orderBook.bestBid();
+        long bestAsk = orderBook.bestAsk();
+
+        return new HeatmapColumn(timestamp, bestBid, bestAsk, prices, quantities, trades);
+    }
+
+    public HeatmapBuffer getHeatmapBuffer() {
+        return heatmapBuffer;
     }
 
     private static long[][] toArrays(Set<Map.Entry<Long, Long>> entries) {

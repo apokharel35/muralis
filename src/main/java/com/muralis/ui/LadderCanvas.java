@@ -18,6 +18,7 @@ public class LadderCanvas extends Region {
 
     private static final double BUBBLE_PANEL_W   = 280.0;
     private static final double CONNECTING_FONT  = 16.0;
+    private static final double DEFAULT_ROW_PX   = 20.0;
 
     // ── Dependencies ──────────────────────────────────────────────────────
     private final AtomicReference<RenderSnapshot> snapshotRef;
@@ -236,9 +237,20 @@ public class LadderCanvas extends Region {
         // Mouse scroll on the ladder canvas
         ladderCanvas.setOnScroll(event -> {
             if (event.isControlDown()) {
-                // Ctrl + scroll → zoom (Section 4.3)
-                double delta = event.getDeltaY() > 0 ? 1.0 : -1.0;
-                view.adjustZoom(delta * 2.0);
+                // Ctrl + scroll → cycle aggregation level (Section 3.2)
+                if (event.getDeltaY() > 0) {
+                    // zoom IN → decrease aggregation
+                    if (aggregationLevelIndex > 0) {
+                        aggregationLevelIndex--;
+                        view.rowHeightPx = DEFAULT_ROW_PX;
+                    }
+                } else {
+                    // zoom OUT → increase aggregation
+                    if (aggregationLevelIndex < aggregationLevels.length - 1) {
+                        aggregationLevelIndex++;
+                        view.rowHeightPx = DEFAULT_ROW_PX;
+                    }
+                }
             } else {
                 // Scroll without Ctrl → vertical scroll; override auto-centre
                 double deltaTicks = event.getDeltaY() * -1.5 / view.rowHeightPx();

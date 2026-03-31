@@ -47,6 +47,7 @@ public class HeatmapCanvas extends Region {
         if (heatmapPainter == null || heatmapPainter.view != view) {
             heatmapPainter = new HeatmapPainter(canvas, view, colorScheme, renderConfig);
         }
+        heatmapPainter.ticksPerRow = view.ticksPerRow;
 
         GraphicsContext gc = canvas.getGraphicsContext2D();
         gc.save();

@@ -117,6 +117,7 @@ public class LadderCanvas extends Region {
                 heatmapCanvas.paint(snap, view);
 
                 // Step 3b — paint ladder; gc.save/restore prevents state leakage (Section 4.1)
+                ladderPainter.ticksPerRow = ticksPerRow;
                 GraphicsContext gc = ladderCanvas.getGraphicsContext2D();
                 gc.save();
                 ladderPainter.paint(snap);

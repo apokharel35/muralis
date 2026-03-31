@@ -56,13 +56,18 @@ class HeatmapPainter {
         long timeWindowMs = (long) renderConfig.heatmapTimeWindowSec() * 1000L;
 
         // Pass 2 — find maxQty across all visible cells
-        long maxQty = 0L;
+        long   maxQty = 0L;
+        double scanRowH = view.rowHeightPx();
         for (int i = writeIndex - 1; i >= 0; i--) {
             HeatmapColumn col = buffer.getColumn(i);
             if (col == null) break;
             if (col.timestamp() < newestTs - timeWindowMs) break;
-            for (long qty : col.quantities()) {
-                if (qty > maxQty) maxQty = qty;
+            long[] scanPrices = col.prices();
+            long[] scanQtys   = col.quantities();
+            for (int j = 0; j < scanPrices.length; j++) {
+                double y = view.priceToY(scanPrices[j], view.centrePrice());
+                if (y < -scanRowH || y > panelHeight + scanRowH) continue;
+                if (scanQtys[j] > maxQty) maxQty = scanQtys[j];
             }
         }
         if (maxQty == 0L) return;
@@ -95,7 +100,7 @@ class HeatmapPainter {
                 if (qty == 0L) continue;
 
                 double y = view.priceToY(prices[j], view.centrePrice());
-                if (y < 0 || y > panelHeight) continue;
+                if (y < -rowH || y > panelHeight + rowH) continue;
 
                 Color cell = heatmapColor(qty, maxQty, renderConfig.heatmapIntensity(), colorScheme);
                 if (cell == null) continue;
@@ -215,11 +220,10 @@ class HeatmapPainter {
     }
 
     private Color interpolate(Color a, Color b, double t) {
-        return new Color(
-            a.getRed()     + (b.getRed()     - a.getRed())     * t,
-            a.getGreen()   + (b.getGreen()   - a.getGreen())   * t,
-            a.getBlue()    + (b.getBlue()    - a.getBlue())    * t,
-            a.getOpacity() + (b.getOpacity() - a.getOpacity()) * t
-        );
+        double r  = Math.clamp(a.getRed()      + t * (b.getRed()      - a.getRed()),      0.0, 1.0);
+        double g  = Math.clamp(a.getGreen()    + t * (b.getGreen()    - a.getGreen()),    0.0, 1.0);
+        double bl = Math.clamp(a.getBlue()     + t * (b.getBlue()     - a.getBlue()),     0.0, 1.0);
+        double al = Math.clamp(a.getOpacity()  + t * (b.getOpacity()  - a.getOpacity()),  0.0, 1.0);
+        return new Color(r, g, bl, al);
     }
 }

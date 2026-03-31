@@ -2,6 +2,7 @@ package com.muralis.ui;
 
 import com.muralis.engine.RenderConfig;
 import com.muralis.engine.RenderSnapshot;
+import com.muralis.model.InstrumentSpec;
 import javafx.animation.AnimationTimer;
 import javafx.geometry.VPos;
 import javafx.scene.canvas.Canvas;
@@ -41,6 +42,11 @@ public class LadderCanvas extends Region {
     // ── Theme ─────────────────────────────────────────────────────────────
     private ColorScheme colorScheme = ColorScheme.DARK;
 
+    // ── Aggregation state (UI thread only) ───────────────────────────────
+    private int[]   aggregationLevels     = new int[]{1};
+    private int     aggregationLevelIndex = 0;
+    private boolean initializedLevels     = false;
+
     // ─────────────────────────────────────────────────────────────────────
     public LadderCanvas(AtomicReference<RenderSnapshot> snapshotRef,
                         RenderConfig renderConfig,
@@ -71,13 +77,40 @@ public class LadderCanvas extends Region {
                 // Step 1b — sync tick size from instrument spec
                 view.tickSize = snap.instrumentSpec().tickSize();
 
-                // Step 2 — auto-centre on mid-price unless user has overridden (Section 4.4)
+                // Step 1c — initialize aggregation levels on first snapshot
+                if (!initializedLevels) {
+                    updateAggregationLevels(snap.instrumentSpec());
+                    initializedLevels = true;
+                }
+
+                // Step 2 — compute ViewState fields (Section 3.3)
+                int  ticksPerRow       = aggregationLevels[aggregationLevelIndex];
+                long effectiveTickSize = snap.instrumentSpec().tickSize() * ticksPerRow;
+
+                // Step 2 — auto-centre on mid-price unless user has overridden (Section 3.4)
+                long scrollOffsetPx = 0L;
                 if (!userScrolled
                         && snap.bidPrices().length > 0
                         && snap.askPrices().length > 0) {
-                    long midPrice = (snap.bidPrices()[0] + snap.askPrices()[0]) / 2;
-                    view.centreOn(midPrice);
+                    long midPrice       = (snap.bidPrices()[0] + snap.askPrices()[0]) / 2;
+                    long midBucket      = PriceAggregation.bucketPrice(midPrice, effectiveTickSize);
+                    long centreRowIndex = (long)(ladderCanvas.getHeight() / 2.0 / view.rowHeightPx());
+                    scrollOffsetPx      = (midBucket / effectiveTickSize - centreRowIndex)
+                                          * (long) view.rowHeightPx();
+                    view.centreOn(midBucket);
                 }
+
+                // Build ViewState — painters still use LadderView (no behavior change in P5.2)
+                // ViewState will drive painters from P5.4 onward
+                new ViewState(
+                    view.rowHeightPx(),
+                    scrollOffsetPx,
+                    userScrolled,
+                    ladderCanvas.getWidth(),
+                    ladderCanvas.getHeight(),
+                    ticksPerRow,
+                    effectiveTickSize
+                );
 
                 // Step 3a — paint heatmap (shares LadderView for vertical alignment)
                 heatmapCanvas.paint(snap, view);
@@ -193,6 +226,11 @@ public class LadderCanvas extends Region {
         gc.restore();
     }
 
+    /** Recompute the aggregation level array from the instrument spec. */
+    private void updateAggregationLevels(InstrumentSpec spec) {
+        aggregationLevels = PriceAggregation.computeAggregationLevels(spec);
+    }
+
     /** Wire all input event handlers (Sections 4.3–4.5). */
     private void wireInputHandlers() {
         // Mouse scroll on the ladder canvas
@@ -240,4 +278,18 @@ public class LadderCanvas extends Region {
             event.consume();
         });
     }
+
+    // ── ViewState record (Section 3.3) ────────────────────────────────────
+    // Carries the immutable per-frame view parameters used by painters.
+    // ticksPerRow and effectiveTickSize are wired in Phase 5.2;
+    // painters adopt ViewState in Phase 5.4 onward.
+    private record ViewState(
+        double  rowHeightPx,
+        long    scrollOffsetPx,
+        boolean userScrolled,
+        double  canvasWidth,
+        double  canvasHeight,
+        int     ticksPerRow,
+        long    effectiveTickSize
+    ) {}
 }

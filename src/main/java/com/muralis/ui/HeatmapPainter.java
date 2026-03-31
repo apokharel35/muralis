@@ -9,6 +9,7 @@ import com.muralis.model.AggressorSide;
 import com.muralis.model.InstrumentSpec;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
@@ -23,6 +24,7 @@ class HeatmapPainter {
     final LadderView            view;    // package-private — checked by HeatmapCanvas for rebuild
     ColorScheme                colorScheme;   // package-private — swapped on theme toggle
     private final RenderConfig renderConfig;
+    int ticksPerRow = 1; // package-private — set by HeatmapCanvas before each paint
 
     HeatmapPainter(Canvas canvas, LadderView view,
                    ColorScheme colorScheme, RenderConfig renderConfig) {
@@ -68,16 +70,45 @@ class HeatmapPainter {
         }
         Collections.reverse(visibleList); // oldest first
 
+        long   centreP   = view.centrePrice();
+        long   ets       = snap.instrumentSpec().tickSize() * ticksPerRow;
+        double scrollOff = view.scrollOffsetTicks();
+        double rowH      = view.rowHeightPx();
+
         // Pass 2 — find maxQty across visible cells in visible Y range
-        long   maxQty  = 0L;
-        double scanRowH = view.rowHeightPx();
-        for (HeatmapColumn col : visibleList) {
-            long[] scanPrices = col.prices();
-            long[] scanQtys   = col.quantities();
-            for (int j = 0; j < scanPrices.length; j++) {
-                double y = view.priceToY(scanPrices[j], view.centrePrice());
-                if (y < -scanRowH || y > panelHeight + scanRowH) continue;
-                if (scanQtys[j] > maxQty) maxQty = scanQtys[j];
+        long maxQty = 0L;
+        if (ticksPerRow == 1) {
+            // Fast path: per-price scan (unchanged)
+            for (HeatmapColumn col : visibleList) {
+                long[] scanPrices = col.prices();
+                long[] scanQtys   = col.quantities();
+                for (int j = 0; j < scanPrices.length; j++) {
+                    double y = view.priceToY(scanPrices[j], centreP);
+                    if (y < -rowH || y > panelHeight + rowH) continue;
+                    if (scanQtys[j] > maxQty) maxQty = scanQtys[j];
+                }
+            }
+        } else {
+            // Aggregated: build per-column bucketMax, track max across visible range
+            long topPrice    = view.yToPrice(0, centreP);
+            long bottomPrice = view.yToPrice(panelHeight, centreP);
+            long topBucket    = PriceAggregation.bucketPrice(topPrice + ets, ets);
+            long bottomBucket = PriceAggregation.bucketPrice(bottomPrice - ets, ets);
+            for (HeatmapColumn col : visibleList) {
+                long[] colPrices = col.prices();
+                long[] colQtys   = col.quantities();
+                HashMap<Long, Long> bucketMax = new HashMap<>();
+                for (int j = 0; j < colPrices.length; j++) {
+                    long bucket = PriceAggregation.bucketPrice(colPrices[j], ets);
+                    bucketMax.merge(bucket, colQtys[j], Math::max);
+                }
+                for (java.util.Map.Entry<Long, Long> entry : bucketMax.entrySet()) {
+                    long bucket = entry.getKey();
+                    if (bucket < bottomBucket || bucket > topBucket) continue;
+                    double y = bucketToY(bucket, centreP, ets, rowH, panelHeight, scrollOff);
+                    if (y < -rowH || y > panelHeight + rowH) continue;
+                    if (entry.getValue() > maxQty) maxQty = entry.getValue();
+                }
             }
         }
         if (maxQty == 0L) return;
@@ -89,27 +120,64 @@ class HeatmapPainter {
         double rightEdge = panelWidth - RIGHT_MARGIN;
 
         // Pass 3 — paint liquidity cells (index-based X, newest at right edge)
-        double rowH = view.rowHeightPx();
-        for (int idx = 0; idx < n; idx++) {
-            HeatmapColumn col = visibleList.get(idx);
-            double x = rightEdge - (n - idx) * colWidth;
-            if (x + colWidth < 0) continue;
+        if (ticksPerRow == 1) {
+            // Fast path: per-price iteration (unchanged)
+            for (int idx = 0; idx < n; idx++) {
+                HeatmapColumn col = visibleList.get(idx);
+                double x = rightEdge - (n - idx) * colWidth;
+                if (x + colWidth < 0) continue;
 
-            long[] prices     = col.prices();
-            long[] quantities = col.quantities();
+                long[] prices     = col.prices();
+                long[] quantities = col.quantities();
 
-            for (int j = 0; j < prices.length; j++) {
-                long qty = quantities[j];
-                if (qty == 0L) continue;
+                for (int j = 0; j < prices.length; j++) {
+                    long qty = quantities[j];
+                    if (qty == 0L) continue;
 
-                double y = view.priceToY(prices[j], view.centrePrice());
-                if (y < -rowH || y > panelHeight + rowH) continue;
+                    double y = view.priceToY(prices[j], centreP);
+                    if (y < -rowH || y > panelHeight + rowH) continue;
 
-                Color cell = heatmapColor(qty, maxQty, renderConfig.heatmapIntensity(), colorScheme);
-                if (cell == null) continue;
+                    Color cell = heatmapColor(qty, maxQty, renderConfig.heatmapIntensity(), colorScheme);
+                    if (cell == null) continue;
 
-                gc.setFill(cell);
-                gc.fillRect(x, y, colWidth, rowH);
+                    gc.setFill(cell);
+                    gc.fillRect(x, y, colWidth, rowH);
+                }
+            }
+        } else {
+            // Aggregated: per-column bucketMax, iterate visible rows by ets
+            long topPrice    = view.yToPrice(0, centreP);
+            long bottomPrice = view.yToPrice(panelHeight, centreP);
+            long topBucket   = PriceAggregation.bucketPrice(topPrice + ets, ets);
+
+            for (int idx = 0; idx < n; idx++) {
+                HeatmapColumn col = visibleList.get(idx);
+                double x = rightEdge - (n - idx) * colWidth;
+                if (x + colWidth < 0) continue;
+
+                long[] colPrices = col.prices();
+                long[] colQtys   = col.quantities();
+
+                // Build per-column bucket map once, reused for all rows in this column
+                HashMap<Long, Long> bucketMax = new HashMap<>();
+                for (int j = 0; j < colPrices.length; j++) {
+                    long bucket = PriceAggregation.bucketPrice(colPrices[j], ets);
+                    bucketMax.merge(bucket, colQtys[j], Math::max);
+                }
+
+                for (long bucket = topBucket; bucket >= bottomPrice; bucket -= ets) {
+                    long qty = bucketMax.getOrDefault(bucket, 0L);
+                    if (qty == 0L) continue;
+
+                    double y = bucketToY(bucket, centreP, ets, rowH, panelHeight, scrollOff);
+                    if (y < -rowH || y > panelHeight + rowH) continue;
+
+                    Color cell = heatmapColor(qty, maxQty, renderConfig.heatmapIntensity(), colorScheme);
+                    if (cell == null) continue;
+
+                    gc.setFill(cell);
+                    gc.fillRect(x, y, colWidth, rowH);
+                }
             }
         }
 
@@ -121,7 +189,9 @@ class HeatmapPainter {
             if (x + colWidth < 0) continue;
 
             for (TradeBlip trade : col.trades()) {
-                double y = view.priceToY(trade.price(), view.centrePrice());
+                long   dotPrice = ticksPerRow == 1 ? trade.price()
+                                  : PriceAggregation.bucketPrice(trade.price(), ets);
+                double y = bucketToY(dotPrice, centreP, ets, rowH, panelHeight, scrollOff);
                 if (y < 0 || y > panelHeight) continue;
 
                 double diameter = bubbleDiameter(trade.qty(), spec);
@@ -143,8 +213,10 @@ class HeatmapPainter {
             for (int idx = 0; idx < n; idx++) {
                 HeatmapColumn col = visibleList.get(idx);
                 if (col.bestBid() <= 0L) continue;
+                long   bidPrice = ticksPerRow == 1 ? col.bestBid()
+                                  : PriceAggregation.bucketPrice(col.bestBid(), ets);
                 double x = rightEdge - (n - idx) * colWidth;
-                double y = view.priceToY(col.bestBid(), view.centrePrice());
+                double y = bucketToY(bidPrice, centreP, ets, rowH, panelHeight, scrollOff);
                 if (!bidStarted) { gc.moveTo(x, y); bidStarted = true; }
                 else             { gc.lineTo(x, y); }
             }
@@ -157,8 +229,10 @@ class HeatmapPainter {
             for (int idx = 0; idx < n; idx++) {
                 HeatmapColumn col = visibleList.get(idx);
                 if (col.bestAsk() <= 0L) continue;
+                long   askPrice = ticksPerRow == 1 ? col.bestAsk()
+                                  : PriceAggregation.bucketPrice(col.bestAsk(), ets);
                 double x = rightEdge - (n - idx) * colWidth;
-                double y = view.priceToY(col.bestAsk(), view.centrePrice());
+                double y = bucketToY(askPrice, centreP, ets, rowH, panelHeight, scrollOff);
                 if (!askStarted) { gc.moveTo(x, y); askStarted = true; }
                 else             { gc.lineTo(x, y); }
             }
@@ -169,6 +243,12 @@ class HeatmapPainter {
         gc.setStroke(colorScheme.heatmapBackground.brighter());
         gc.setLineWidth(1.0);
         gc.strokeLine(rightEdge, 0, rightEdge, panelHeight);
+    }
+
+    private static double bucketToY(long bucket, long centreP, long ets,
+                                    double rowH, double h, double scrollOff) {
+        double rowOffset = (double)(centreP - bucket) / ets - scrollOff;
+        return h / 2.0 + rowOffset * rowH;
     }
 
     private double bubbleDiameter(long qty, InstrumentSpec spec) {

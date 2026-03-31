@@ -87,6 +87,7 @@ public class LadderCanvas extends Region {
                 // Step 2 — compute ViewState fields (Section 3.3)
                 int  ticksPerRow       = aggregationLevels[aggregationLevelIndex];
                 long effectiveTickSize = snap.instrumentSpec().tickSize() * ticksPerRow;
+                view.ticksPerRow = ticksPerRow;
 
                 // Step 2 — auto-centre on mid-price unless user has overridden (Section 3.4)
                 long scrollOffsetPx = 0L;

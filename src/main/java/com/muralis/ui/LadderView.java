@@ -12,6 +12,7 @@ class LadderView {
     double scrollOffsetTicks;
     long   centrePrice;
     long   tickSize;
+    int    ticksPerRow = 1; // effective aggregation level — set by LadderCanvas each frame
 
     LadderView(double canvasHeight) {
         this.canvasHeight      = canvasHeight;

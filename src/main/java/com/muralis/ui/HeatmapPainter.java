@@ -189,8 +189,7 @@ class HeatmapPainter {
     private Color heatmapColor(long qty, long maxQty,
                                double intensity, ColorScheme scheme) {
         double ratio = (double) qty / maxQty;
-        double alpha = ratio * intensity;
-        if (alpha < 0.02) return null;
+        if (ratio < 0.02) return null;
 
         Color base;
         if (ratio <= 0.25) {
@@ -207,8 +206,12 @@ class HeatmapPainter {
             base = interpolate(scheme.heatmapThick, scheme.heatmapMax, t);
         }
 
-        return new Color(base.getRed(), base.getGreen(), base.getBlue(),
-                         Math.clamp(alpha, 0.0, 1.0));
+        // Apply intensity to brightness via deriveColor:
+        // intensity < 1.0 = darker, intensity > 1.0 = brighter
+        // Alpha is fixed at the ratio value (not intensity-scaled)
+        double alpha = Math.clamp(ratio, 0.02, 1.0);
+        Color adjusted = base.deriveColor(0, 1.0, intensity, alpha);
+        return adjusted;
     }
 
     private Color interpolate(Color a, Color b, double t) {

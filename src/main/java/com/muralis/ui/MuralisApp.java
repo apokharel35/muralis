@@ -16,6 +16,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.layout.BorderPane;
@@ -96,6 +97,38 @@ public class MuralisApp extends Application {
         // ── Control bar (BOTTOM, 36px) ─────────────────────────────────────
         // Section 8
 
+        // ── Heatmap controls ───────────────────────────────────────────
+        CheckBox heatmapToggle = new CheckBox("Heatmap");
+        heatmapToggle.setSelected(true);
+        heatmapToggle.setTextFill(ColorScheme.DARK.priceText);
+        heatmapToggle.selectedProperty().addListener((obs, oldVal, newVal) ->
+            renderConfig.setHeatmapEnabled(newVal));
+
+        Slider heatmapIntensitySlider = new Slider(0.1, 2.0, 1.0);
+        heatmapIntensitySlider.setPrefWidth(100);
+        heatmapIntensitySlider.valueProperty().addListener((obs, oldVal, newVal) ->
+            renderConfig.setHeatmapIntensity(newVal.doubleValue()));
+
+        CheckBox bboToggle = new CheckBox("BBO");
+        bboToggle.setSelected(true);
+        bboToggle.setTextFill(ColorScheme.DARK.priceText);
+        bboToggle.selectedProperty().addListener((obs, oldVal, newVal) ->
+            renderConfig.setBboLineEnabled(newVal));
+
+        Label historyLabel = new Label("History:");
+        historyLabel.setTextFill(ColorScheme.DARK.priceText);
+
+        ComboBox<Integer> timeWindowCombo = new ComboBox<>();
+        timeWindowCombo.getItems().addAll(30, 60, 120, 300);
+        timeWindowCombo.setValue(60);
+        timeWindowCombo.setOnAction(e -> renderConfig.setHeatmapTimeWindowSec(timeWindowCombo.getValue()));
+
+        heatmapToggle.selectedProperty().addListener((obs, oldVal, newVal) -> {
+            heatmapIntensitySlider.setDisable(!newVal);
+            bboToggle.setDisable(!newVal);
+            timeWindowCombo.setDisable(!newVal);
+        });
+
         // ── Delta tint controls ────────────────────────────────────────
         Label deltaTintLabel = new Label("50%");
         deltaTintLabel.setTextFill(ColorScheme.DARK.priceText);
@@ -144,6 +177,8 @@ public class MuralisApp extends Application {
         centreButton.setOnAction(e -> ladderCanvas.resetScroll());
 
         HBox controlBar = new HBox(8,
+                heatmapToggle, heatmapIntensitySlider,
+                bboToggle, historyLabel, timeWindowCombo,
                 deltaTintToggle, deltaTintSlider, deltaTintLabel, resetDelta,
                 volumeToggle, resetVolume,
                 zoomOut, zoomIn, centreButton);

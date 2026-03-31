@@ -24,4 +24,9 @@ public class RenderConfig {
 
     public double deltaTintIntensity()                   { return deltaTintIntensity; }
     public void setDeltaTintIntensity(double intensity)  { this.deltaTintIntensity = intensity; }
+
+    private volatile boolean volumeProfileEnabled = true;
+
+    public boolean volumeProfileEnabled()                      { return volumeProfileEnabled; }
+    public void setVolumeProfileEnabled(boolean enabled)       { this.volumeProfileEnabled = enabled; }
 }

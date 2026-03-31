@@ -24,6 +24,7 @@ public record RenderSnapshot(
         long             maxAbsDelta,
         Map<Long, Long>  priceVolumeMap,
         long             maxVolume,
+        HeatmapBuffer    heatmapBuffer,
         ConnectionState  connectionState,
         InstrumentSpec   instrumentSpec
 ) {
